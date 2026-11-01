@@ -235,7 +235,7 @@ function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75, onPost = n
       const t = state.tasks.get(id);
       if (!t) return send(404, { message: 'Task not found' });
       state.polls++;
-      if (state.slow) return send(200, { id, status: 'IN_PROGRESS', progress: 40 });
+      if (state.slow === true || state.slow === t.kind) return send(200, { id, status: 'IN_PROGRESS', progress: 40 });
       if (t.kind === 'rigging' && failRig) {
         state.balance += cost.rigging;
         return send(200, { id, status: 'FAILED', task_error: { message: 'Pose estimation failed' } });
@@ -663,6 +663,26 @@ test('a rerun collects a paid job even when the balance is now low', async () =>
     const again = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
     assert.equal(again.json.success, true, JSON.stringify(again.json));
     assert.ok(again.json.clips.includes('cast'));
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('clips remade on a new rig keep their loop flag, and a pending remake resumes', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash,walk', '--no-history'], { cwd, base: fake.base });
+    fake.state.slow = 'animations';
+    const first = await run(['rig', 'hero', '--height', '2', '--wait', '1', '--no-history'], { cwd, base: fake.base });
+    assert.equal(first.json.pending, true, JSON.stringify(first.json));
+    fake.state.slow = false;
+    const again = await run(['rig', 'hero', '--height', '2', '--no-history'], { cwd, base: fake.base });
+    assert.equal(again.json.success, true, JSON.stringify(again.json));
+    assert.deepEqual(again.json.clips.slice().sort(), ['idle', 'run', 'slash', 'walk']);
+    assert.equal(fake.state.posts.filter((p) => p.kind === 'animations').length, 2);
+    const loops = Object.fromEntries((await run(['inspect', 'hero'], { cwd, base: fake.base })).json.clips.map((c) => [c.name, c.loop]));
+    assert.deepEqual(loops, { idle: true, slash: false, walk: true, run: true });
   } finally {
     fake.server.close();
   }

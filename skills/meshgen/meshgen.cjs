@@ -695,7 +695,6 @@ function newCtx(opts, claimed, request) {
     created: [],
     dropped: new Set(),
     droppedClips: new Set(),
-    reanimate: [],
     spent: 0,
     deadline: Date.now() + (opts.wait || DEFAULT_WAIT_SECONDS) * 1000,
   };
@@ -836,10 +835,16 @@ async function rigModel(ctx) {
     // A new skeleton: clips made for the old one don't fit it. Paid clips
     // are made again on the new rig (four-legged rigs can't use the library).
     for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
-    freeClips = m.clips.filter((c) => c.actionId === null || c.actionId === undefined).map((c) => c.name);
-    const paid = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined);
-    if (!m.request.quadruped) ctx.reanimate = paid.map((c) => `${c.name}=${c.actionId}`);
-    else if (paid.length) log(`a four-legged rig can't use Meshy's animation library, so ${paid.map((c) => c.name).join(", ")} were dropped.`);
+    // m.reanimate lists clips to make on the new rig. It stays in the
+    // manifest until they are made, so a rerun after a timeout picks up the
+    // same job instead of forgetting them.
+    const carried = m.reanimate || [];
+    freeClips = m.clips.filter((c) => c.actionId === null || c.actionId === undefined).map((c) => c.name)
+      .concat(carried.filter((s) => !s.includes("=")));
+    const paid = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`)
+      .concat(carried.filter((s) => s.includes("=")));
+    m.reanimate = m.request.quadruped ? [] : paid;
+    if (m.request.quadruped && paid.length) log(`a four-legged rig can't use Meshy's animation library, so ${paid.map((s) => s.split("=")[0]).join(", ")} were dropped.`);
     for (const c of m.clips) ctx.droppedClips.add(c.name);
     m.clips = [];
   }
@@ -851,11 +856,13 @@ async function rigModel(ctx) {
     await download(r.rigged_character_fbx_url, path.join(src, "rigged.fbx"));
   }
   // walk and run come with the new rig too, when Meshy sent them.
-  ctx.reanimate.push(...freeClips.filter((n) => ACTIONS[n] && ACTIONS[n].free && hasFreeClip(ctx, ACTIONS[n].free)));
+  m.reanimate = (m.reanimate || []).concat(freeClips.filter((n) => ACTIONS[n] && ACTIONS[n].free && hasFreeClip(ctx, ACTIONS[n].free)));
   m.rig = { id: task.id, expiresAt: expiryOf(task), height };
   saveManifest(ctx);
   return task;
 }
+
+const LOOPING = /idle|walk|run|loop|swim|dance/i;
 
 // "idle", "cast=129", "cast=mage_soell_cast", "Left_Slash" or "466".
 function resolveAction(spec, library) {
@@ -870,13 +877,15 @@ function resolveAction(spec, library) {
     const id = Number(target);
     const entry = library && library.find((a) => a.action_id === id);
     if (library && !entry) throw new MeshgenError(`There's no Meshy action ${id}. Look one up with: meshgen actions <word>`);
-    return { clip: /^\d+$/.test(name) ? slugClip(entry ? entry.key : `action-${id}`) : clip, id, loop: false };
+    // A clip made again on a new rig comes back as "idle=0": it keeps its loop.
+    const loop = ACTIONS[clip] && ACTIONS[clip].id === id ? !!ACTIONS[clip].loop : !!entry && LOOPING.test(entry.key);
+    return { clip: /^\d+$/.test(name) ? slugClip(entry ? entry.key : `action-${id}`) : clip, id, loop };
   }
   const entry = library && library.find((a) => a.key.toLowerCase() === target.toLowerCase() || a.name.toLowerCase() === target.toLowerCase());
   if (!entry) {
     throw new MeshgenError(`"${target}" isn't an action meshgen knows. Plain names: ${Object.keys(ACTIONS).join(", ")}. Or search Meshy's library: meshgen actions ${target}`);
   }
-  return { clip, id: entry.action_id, loop: /idle|walk|run|loop|swim|dance/i.test(entry.key) };
+  return { clip, id: entry.action_id, loop: LOOPING.test(entry.key) };
 }
 
 function slugClip(name) {
@@ -893,8 +902,7 @@ async function animateModel(ctx, specs) {
   if (wantsPaid && m.rig && isExpired(m.rig)) await rigModel(ctx);
   // Clips the old rig had, made again for a new one (unless asked for now).
   const names = new Set(specs.map((s) => slugClip(s.split("=")[0])));
-  specs = specs.concat(ctx.reanimate.filter((s) => !names.has(s.split("=")[0])));
-  ctx.reanimate = [];
+  specs = specs.concat((m.reanimate || []).filter((s) => !names.has(s.split("=")[0])));
   const library = needsLibrary(specs) ? await api("GET", "/openapi/v1/animations/library") : null;
   const wanted = specs.map((s) => resolveAction(s, library));
   const paid = wanted.filter((a) => !a.free || !hasFreeClip(ctx, a.free));
@@ -916,6 +924,7 @@ async function animateModel(ctx, specs) {
       setClip(m, { name: a.clip, source: `source/${a.free}.glb`, index: 0, actionId: null, loop: true });
     }
   }
+  delete m.reanimate;
   saveManifest(ctx);
 }
 
