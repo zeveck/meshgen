@@ -25,11 +25,21 @@ JSON line on stdout; progress goes to stderr.
 
 Ask the user questions in plain words in your reply. Never use a question tool.
 
+**For a 3D print** (a figurine, miniature, toy or part to print), read
+`${CLAUDE_SKILL_DIR}/printing.md` first and follow it instead of the game
+advice below: prints need millimeters, full detail, solid printable shapes
+and no rig.
+
 ## Costs
 
 Meshy charges credits (about $0.02 each on the Pro plan). Before spending,
-tell the user what it will cost, unless they already gave you a budget (for
-example through gamegen). `--dry-run` shows the cost without calling Meshy.
+add up what the whole request will cost, say it once in plain words ("4
+models and a rigged character: about 170 credits, roughly $3.40. Go
+ahead?") and wait for a yes, unless the user already gave you a budget (for
+example through gamegen). Leave room for a retry or two in that number:
+Meshy's free retries are only for its web app, so an API redo costs full
+price. `--dry-run` shows the exact cost of one command without calling
+Meshy, and `balance` shows what's left.
 
 | Asset | Credits |
 |---|---|
@@ -37,7 +47,7 @@ example through gamegen). `--dry-run` shows the cost without calling Meshy.
 | Character: model, rig, idle/walk/run/jump/attack/hit/die | about 50 |
 | Each extra animation | 3 (walk and run come free with every rig) |
 | Remesh | 5 |
-| `balance`, `actions`, `inspect`, `preview`, `view`, `rebuild`, `printcheck`, `--dry-run` | free |
+| `balance`, `actions`, `inspect`, `preview`, `view`, `rebuild`, `--dry-run` | free |
 
 ## Text or picture?
 
@@ -66,9 +76,12 @@ This makes the model in A-pose, rigs it, adds the clips, and writes
 `assets/meshgen/hero/hero.glb` plus a preview sheet. Clips are named after the
 words you used.
 
-- Rigging only works on **two-legged humanoids** with clear arms and legs.
-  For animals, creatures, vehicles and props, make a plain `model` and animate
-  it in the game's code (see reference.md).
+- Rigging works on **two-legged humanoids** with clear arms and legs. For
+  animals, creatures, vehicles and props, make a plain `model` and animate it
+  in the game's code (see reference.md). `--quadruped` asks Meshy for a
+  four-legged rig with a walk clip. It is experimental: in our test (a cat)
+  Meshy's rig came back about 60 times too small (meshgen rescales that) and
+  its walk clip was unusable, so check the preview before relying on it.
 - **Held items** (swords, staffs, shields, guns) work best as separate
   `model`s attached to the hand bone in the game (`RightHand`, `LeftHand`).
   They rig cleaner, can be swapped, and effects like flames belong to the
@@ -93,10 +106,6 @@ node ${CLAUDE_SKILL_DIR}/meshgen.cjs model sword --image concepts/sword.png --he
 triangles for props, 30,000 for characters. Change it with `--polycount`, or
 later with `remesh` (5 credits).
 
-For **3D printing**, add `--formats stl,3mf`. Prints keep Meshy's full detail.
-`printcheck <name> --height-mm 80` runs Meshy's free check for holes and thin
-walls.
-
 ## Checking the result
 
 Always look at the preview sheet before calling an asset done:
@@ -108,8 +117,7 @@ shows four frames of one clip. Check that:
 - it looks like the picture or description;
 - the character faces the arrow, stands on the ground and is the right size;
 - every clip moves the way its name says, with no twisted limbs;
-- the JSON `warnings` list has nothing new (a note about JPEG textures kept
-  as they are is fine).
+- the JSON `warnings` list is empty (`notes` are just information).
 
 `view <name>` serves an interactive viewer (orbit, play each clip, show the
 bones) for the user to open in a browser. Run it in the background.
@@ -133,7 +141,7 @@ without paying twice.
 | `inspect <name or file.glb>` | Height, triangles, bones, clips, textures |
 | `preview <name or file.glb>` | Screenshot sheet (`--clips` picks clips) |
 | `view <name or file.glb>` | Interactive viewer on `--port` (default 8737) |
-| `printcheck <name>` | Meshy's 3D-print check |
+| `printcheck`, `repair`, `multicolor`, `split` | 3D printing: see printing.md |
 
 | Option | Meaning |
 |---|---|
@@ -150,12 +158,12 @@ without paying twice.
 | `--max-texture <px>` | Shrink the GLB's PNG textures to fit (default 1024; 0 keeps them) |
 | `--formats <list>` | `glb` plus any of `fbx`, `obj`, `usdz`, `stl`, `3mf` (saved in `source/`) |
 | `--actions <list>` | Clips for `character` |
+| `--quadruped` | Four-legged rig, walk clip only (experimental) |
 | `--root-motion` | Keep clips' forward movement |
 | `--no-root-motion` | Back to in-place clips (`rebuild`, `animate`) |
 | `--dir <path>` | Where asset folders go (default `assets/meshgen`) |
 | `--max-credits <n>` | Refuse to start if the estimate is higher |
 | `--wait <seconds>` | How long to wait for Meshy (default 540) |
-| `--height-mm <n>`, `--printer <type>` | For `printcheck` (`fdm`, `sla`, `full_color`) |
 | `--clips <list>` | For `preview` |
 | `--port <n>` | For `view` |
 | `--category <name>` | For `actions` |

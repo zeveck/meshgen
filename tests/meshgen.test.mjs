@@ -90,7 +90,8 @@ test('version matches package.json, plugin.json and the CHANGELOG', () => {
 test('every flag in the CLI is in SKILL.md and the README', () => {
   const src = fs.readFileSync(SCRIPT, 'utf8');
   const flags = new Set(src.match(/"--[a-z-]+"/g).map((f) => f.slice(1, -1)));
-  const skill = fs.readFileSync(path.join(ROOT, 'skills/meshgen/SKILL.md'), 'utf8');
+  // Print-only flags live in printing.md, which the skill reads only for prints.
+  const skill = fs.readFileSync(path.join(ROOT, 'skills/meshgen/SKILL.md'), 'utf8') + fs.readFileSync(path.join(ROOT, 'skills/meshgen/printing.md'), 'utf8');
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   for (const flag of flags) {
     if (['--version', '--help', '--config', '--filename', '--no-sandbox', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'].includes(flag)) continue;
@@ -189,17 +190,17 @@ test('scaleToHeight scales the scene and stands it on the ground', () => {
 
 // --- End to end against a fake Meshy ------------------------------------------
 
-function fakeMeshy({ failRig = false, slow = false } = {}) {
+function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75 } = {}) {
   const state = { balance: 1000, posts: [], tasks: new Map(), polls: 0, slow };
   const files = {
     '/files/model.glb': makeGlb({ height: 1.6 }),
-    '/files/rigged.glb': makeGlb({ height: 1.75 }),
+    '/files/rigged.glb': makeGlb({ height: rigHeight }),
     '/files/walk.glb': makeGlb({ clips: ['Walking'] }),
     '/files/run.glb': makeGlb({ clips: ['Running'] }),
     '/files/anim.glb': makeGlb({ clips: ['Idle', 'Left_Slash', 'Charged_Spell_Cast'] }),
     '/files/thumb.png': Buffer.from('png'),
   };
-  const cost = { 'image-to-3d': 30, 'text-to-3d': 20, rigging: 5, animations: 9 };
+  const cost = { 'image-to-3d': 30, 'text-to-3d': 20, rigging: 5, animations: 9, 'print-analyze': 0 };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
@@ -215,7 +216,7 @@ function fakeMeshy({ failRig = false, slow = false } = {}) {
       if (req.url.startsWith('/openapi/v1/animations/library')) {
         return send(200, [{ action_id: 0, key: 'Idle', name: 'Idle' }, { action_id: 97, key: 'Left_Slash', name: 'Left Slash' }, { action_id: 125, key: 'Charged_Spell_Cast', name: 'Charged Spell Cast' }]);
       }
-      const m = req.url.match(/^\/openapi\/v[12]\/([a-z0-9-]+)(?:\/([^/?]+))?/);
+      const m = req.url.replace('/print/', '/print-').match(/^\/openapi\/v[12]\/([a-z0-9-]+)(?:\/([^/?]+))?/);
       if (!m) return send(404, { message: 'nope' });
       const [, kind, id] = m;
       if (req.method === 'POST') {
@@ -242,6 +243,7 @@ function fakeMeshy({ failRig = false, slow = false } = {}) {
       if (t.kind === 'rigging') {
         return send(200, { ...done, result: { rigged_character_glb_url: `${base}/files/rigged.glb`, basic_animations: { walking_glb_url: `${base}/files/walk.glb`, running_glb_url: `${base}/files/run.glb` } } });
       }
+      if (t.kind === 'print-analyze') return send(200, { ...done, printability: { status: 'ok' } });
       return send(200, { ...done, result: { animation_glb_url: `${base}/files/anim.glb` } });
     });
   });
@@ -434,5 +436,72 @@ test('re-rigging redoes the paid clips on the new skeleton', async () => {
     assert.deepEqual(anims[1].json.action_ids, [0, 97]);
   } finally {
     fake.server.close();
+  }
+});
+
+test('print steps start from the full-detail model and save into print/', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    const made = await run(['model', 'frog', '--print', '--image', 'hero.png', '--height-mm', '80'], { cwd, base: fake.base });
+    assert.equal(made.json.success, true, JSON.stringify(made.json));
+    const modelPost = fake.state.posts[0].json;
+    assert.equal(modelPost.should_remesh, undefined);
+    assert.deepEqual(modelPost.target_formats, ['glb', 'stl', '3mf']);
+    assert.equal(made.json.height, 0.08);
+    const dry = await run(['repair', 'frog', '--height-mm', '80', '--printer', 'sla', '--dry-run'], { cwd, base: fake.base });
+    assert.deepEqual(dry.json.steps[0].body, { input_task_id: 'task-1', printer_type: 'sla', intended_print_height_mm: 80 });
+    const split = await run(['split', 'frog', '--parts', 'head, body', '--plate', '--dry-run'], { cwd, base: fake.base });
+    assert.deepEqual(split.json.steps[0].body, { input_task_id: 'task-1', mode: 'by_parts', target_formats: ['glb', 'stl', '3mf'], layout: 'on_plate', prompt: 'head, body' });
+    assert.throws(() => meshgen.parseArgs(['multicolor', 'frog', '--printer-brand', 'acme']), /must be one of bambu/);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('glbToStl writes millimeters, Z up, standing on the plate', () => {
+  const stl = meshgen.glbToStl(makeGlb({ height: 2 }), 80);
+  assert.equal(stl.readUInt32LE(80), 1);
+  const v = [];
+  for (let k = 0; k < 9; k++) v.push(stl.readFloatLE(84 + 12 + k * 4));
+  const zs = [v[2], v[5], v[8]];
+  assert.deepEqual([Math.min(...zs), Math.round(Math.max(...zs))], [0, 80]);
+});
+
+test('two commands on one asset at once keep both job records', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['model', 'frog', '--print', '--image', 'hero.png'], { cwd, base: fake.base });
+    const [a, b] = await Promise.all([
+      run(['printcheck', 'frog'], { cwd, base: fake.base }),
+      run(['printcheck', 'frog', '--height-mm', '50'], { cwd, base: fake.base }),
+    ]);
+    assert.equal(a.json.success && b.json.success, true, JSON.stringify([a.json, b.json]));
+    const m = JSON.parse(fs.readFileSync(path.join(cwd, 'assets/meshgen/frog/meshgen.json'), 'utf8'));
+    assert.equal(Object.keys(m.tasks).filter((k) => k.startsWith('printcheck-')).length, 2);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a quadruped rig far off its height is rescaled; a close one is left alone', async () => {
+  for (const [rigHeight, expected, rescaled] of [[0.005, 0.3, true], [0.2, 0.2, false]]) {
+    const fake = await fakeMeshy({ rigHeight });
+    const cwd = tempProject();
+    try {
+      const dry = await run(['character', 'cat', '--image', 'hero.png', '--quadruped', '--height', '0.3', '--dry-run'], { cwd, base: fake.base });
+      assert.equal(dry.json.credits, 35);
+      assert.equal(dry.json.steps[1].body.animation_type, 'quadruped');
+      assert.equal(dry.json.steps.length, 2);
+      const r = await run(['character', 'cat', '--image', 'hero.png', '--quadruped', '--height', '0.3'], { cwd, base: fake.base });
+      assert.equal(r.json.success, true, JSON.stringify(r.json));
+      assert.equal(fake.state.posts[1].json.animation_type, 'quadruped');
+      assert.equal(fake.state.posts.filter((p) => p.kind === 'animations').length, 0);
+      assert.equal(r.json.height, expected);
+      assert.equal(/scaled it/.test((r.json.notes || []).join(' ')), rescaled);
+    } finally {
+      fake.server.close();
+    }
   }
 });

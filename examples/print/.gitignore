@@ -1,0 +1,5 @@
+logs/
+concepts/*.json
+assets/meshgen/*/source/
+assets/meshgen/*/print/
+assets/meshgen/*/*.glb

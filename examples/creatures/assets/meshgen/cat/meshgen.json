@@ -1,0 +1,94 @@
+{
+  "name": "cat",
+  "createdAt": "2026-11-01T04:06:12.842Z",
+  "request": {
+    "prompt": null,
+    "images": [
+      "concepts/cat.png"
+    ],
+    "texturePrompt": null,
+    "draft": false,
+    "height": 0.3,
+    "polycount": null,
+    "topology": null,
+    "pose": null,
+    "pbr": false,
+    "texture": null,
+    "formats": [
+      "glb"
+    ],
+    "rootMotion": false,
+    "character": false,
+    "actions": null
+  },
+  "requestHash": "dbe99485af59071cc8162b6f4dbccdb2ccec129e",
+  "tasks": {
+    "model": {
+      "kind": "image",
+      "hash": "87216eca5bf7b47b23b863dfc333a45fae745329",
+      "requestedAt": 1793505972919,
+      "id": "01a19549-5373-7152-834b-d68015cc8f96",
+      "status": "SUCCEEDED",
+      "counted": true,
+      "task": {
+        "id": "01a19549-5373-7152-834b-d68015cc8f96",
+        "type": "image-to-3d",
+        "name": "",
+        "art_style": "",
+        "object_prompt": "",
+        "style_prompt": "",
+        "negative_prompt": "",
+        "texture_prompt": "",
+        "texture_image_url": "",
+        "text_style_prompt": "",
+        "image_style_url": "",
+        "status": "SUCCEEDED",
+        "created_at": 1793505973794,
+        "progress": 100,
+        "started_at": 1793505973805,
+        "finished_at": 1793506016174,
+        "expires_at": 1793765216174,
+        "task_error": null,
+        "model_url": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19549-5373-7152-834b-d68015cc8f96/output/model.glb?Expires=1793765216&Signature=HV19KpzYPJZRcE9~HE5IzVh5hcjOJC2i0Oto4wpOzRL17fe8TpPEYbHcToYZJKmGZ5vR8F2Cjjjnm2gb7ali2VDGyz8ivQNH04sjjw0BWXXFW26HjodlmonUqlzjP1hoKuVhbhjHst5qioknYBN7GbPSJoL792xN8fosnYrAVT3EqnsArwZkOYkkGTd0W~iesygeazbMTbxoeQW28S8A0cVn9nlrEMkRTp0IzQk8M5F6Crz~A35eX1GlTPC1eudGfl7~-Sd9~R9NjVckpmvBMopSxHJiAwbKfSxxRIvJa8mHT2GFw9g56k4h3v713x~0LKlbU8daxoDKSieaXK8x3w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+        "model_urls": {
+          "glb": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19549-5373-7152-834b-d68015cc8f96/output/model.glb?Expires=1793765216&Signature=HV19KpzYPJZRcE9~HE5IzVh5hcjOJC2i0Oto4wpOzRL17fe8TpPEYbHcToYZJKmGZ5vR8F2Cjjjnm2gb7ali2VDGyz8ivQNH04sjjw0BWXXFW26HjodlmonUqlzjP1hoKuVhbhjHst5qioknYBN7GbPSJoL792xN8fosnYrAVT3EqnsArwZkOYkkGTd0W~iesygeazbMTbxoeQW28S8A0cVn9nlrEMkRTp0IzQk8M5F6Crz~A35eX1GlTPC1eudGfl7~-Sd9~R9NjVckpmvBMopSxHJiAwbKfSxxRIvJa8mHT2GFw9g56k4h3v713x~0LKlbU8daxoDKSieaXK8x3w__&Key-Pair-Id=K1VGYTHIYLM9UM"
+        },
+        "thumbnail_url": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19549-5373-7152-834b-d68015cc8f96/output/preview.png?Expires=1793765216&Signature=qhtyycuVeTiPFINKAZ6zU9fuSmmd-p~n6VUc8gy-YThR8D0v2aEabrL008-hWckAKA0uhGSwmV4HNqcY1AW-JOvXErgfOeiEF~Ru~1By2erehpMEEX5ww7fMlg5qQWIz1EN~HAa-bQH5Pe85E3pc39k-WRmaJlE95-B0dSOXEYPdlYQmWhRjQX3HJDNjxneWDcctZyBAD2qFYlsI6IAax38ipvqJNxY2lLd0HKi3wtZ87lyzNPH7b~aSisfrBCOV2cJYoOqeMSvAI1hXbqVxdSG8cCRp5ejguKL3edh7UwwBT2hMry-c7GBDWL1H4Iyuoa1XWcGHqA~xyD0hkPWCag__&Key-Pair-Id=K1VGYTHIYLM9UM",
+        "texture_urls": [
+          {
+            "base_color": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19549-5373-7152-834b-d68015cc8f96/output/texture_0.png?Expires=1793765216&Signature=d00XkhBrJrF88T~aTSok6H9wdTNZkQX6PYwVCjMawkHWgyV8yNx23SALyl3nG~eMg3JRrwmM8lAH~wxA2qZoU~G8Oy-97Ib1pMGhxEcRnvy1uWWbm0nBDB7eQll1ISmjGeXOEIeXGs5hnn7iIRmyT0z-1zJR7e-4hYQ76TBu8L-9SaWMpp2OlPaDvCaHb~TYNrldZ-yAP0I5Ifo2NK3rhxmmOeRCH3yHR~~0s8FsCb2vAN6uxJycMZ56Eux5a3EjTZ859hCnUcrzAhQsuXHX7OaIJJZUvns3xwVs6rAqCWHLM0cKC4vFMnZJdQ2Wlh7xI9WwPBh9ch0zMPLNJpbp4g__&Key-Pair-Id=K1VGYTHIYLM9UM"
+          }
+        ],
+        "consumed_credits": 30
+      },
+      "credits": 30,
+      "expiresAt": 1793765216174
+    }
+  },
+  "clips": [],
+  "updatedAt": "2026-11-01T04:13:34.536Z",
+  "modelTask": {
+    "id": "01a19549-5373-7152-834b-d68015cc8f96",
+    "expiresAt": 1793765216174,
+    "kind": "image"
+  },
+  "files": {
+    "model": {
+      "glb": "source/model.glb"
+    }
+  },
+  "warnings": [],
+  "done": true,
+  "creditsUsed": 35,
+  "notes": [
+    "Kept image/jpeg 2048px textures as they are: meshgen shrinks PNG only, and Meshy's JPEGs are already compact."
+  ],
+  "quadrupedTest": {
+    "rig": {
+      "id": "01a1954d-79d3-75db-9b11-e642d2dcfedb",
+      "expiresAt": 1793765515600,
+      "height": 0.3
+    },
+    "note": "Meshy quadruped rig 2026-11-01: rig came back 0.005 m tall for 0.3 m, walk clip unusable; files in source/quadruped-test"
+  }
+}

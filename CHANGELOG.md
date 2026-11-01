@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.11.1.2
+
+- 3D printing has its own guide, `printing.md`, which the skill reads only when you ask for a print: sizes in millimeters, solid shapes, overhangs and supports. Game requests never load it.
+- `model --print` keeps full detail and saves STL and 3MF. New print steps: `repair` (also writes a slicer-ready STL in millimeters), `multicolor` (a multi-color 3MF for your printer) and `split` (parts that print separately, with optional pegs).
+- `--quadruped` asks Meshy for a four-legged rig. It's experimental: in testing the rig came back far too small (meshgen now rescales a rig that comes back more than twice off the height you asked for) and its walk clip wasn't usable.
+- Two meshgen commands can now work on the same asset at once without losing each other's Meshy job records.
+- The skill adds up the cost of a whole request and asks once.
+- New demos: the Creature Showcase (a fish, dragon, frog and cat animated in code) and a gallery page at zeveck.github.io/meshgen.
+
 ## 2026.11.1
 
 First release.

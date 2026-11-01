@@ -13,9 +13,9 @@
   bones, so hands stay open.
 - Every clip from one character shares that skeleton. Each clip has
   `extras.loop` (true for idle, walk, run and other cycles).
-- PNG textures are shrunk to at most 1024 px unless `--max-texture` says
-  otherwise. `--draft` models come with JPEG textures, which stay as they are
-  (they are already compact). A character is about 6 MB, a prop 1-4 MB.
+- Meshy sends PNG or JPEG textures. PNGs are shrunk to at most 1024 px
+  unless `--max-texture` says otherwise; JPEGs stay as they are (they are
+  already compact). A character is about 6 MB, a prop or creature 3-5 MB.
 
 ## three.js
 
@@ -98,8 +98,48 @@ the blade, a point light, and an emissive material.
 | Blending (walk into run, strafing) | The engine: crossfades and weights, or Godot's AnimationTree |
 | Small reactions: flinch, recoil, look-at, aiming, breathing | The engine, layered on top of the clips (additive clips, IK, a bone turned in code) |
 | Props: chest lid, door, lever, wheels, spinning pickups | No rig: rotate or move the model's parts in code |
-| Animals, monsters, vehicles, anything not two-legged | No rig: a plain model, moved in code (bob, sway, squash, tilt). Meshy's API rigging is for humanoids |
+| Animals, monsters, vehicles, anything not two-legged | No rig: a plain model, moved in code (see below). Meshy's `--quadruped` rig is experimental and gave an unusable walk in our test |
 | Clips Meshy doesn't have | Search more (`actions <word>`); Quaternius's CC0 animation libraries can be retargeted in Godot. Don't automate Mixamo downloads |
+
+## Animating plain models in code
+
+Fish, birds, dragons, frogs, slimes and most creatures don't need a rig. Bend
+the model in its vertex shader and move it along a path. `examples/creatures`
+in the meshgen repo does a betta fish, a dragon, a frog and a cat this way.
+
+1. **Bake the model into meters.** Apply each mesh's world matrix to its
+   geometry, so shader code sees the model's own space (+Y up, +Z front):
+
+   ```js
+   gltf.scene.updateMatrixWorld(true);
+   gltf.scene.traverse((o) => { if (o.isMesh) o.geometry = o.geometry.clone().applyMatrix4(o.matrixWorld); });
+   ```
+
+2. **Add a deformation** after three.js computes `transformed`:
+
+   ```js
+   mesh.material.onBeforeCompile = (shader) => {
+     Object.assign(shader.uniforms, { uTime, uMaxZ, uLen }); // { value: ... }; update uTime each frame
+     shader.vertexShader = 'uniform float uTime, uMaxZ, uLen;\n' + shader.vertexShader.replace(
+       '#include <begin_vertex>',
+       `#include <begin_vertex>
+        float along = clamp((uMaxZ - position.z) / uLen, 0.0, 1.0);   // 0 head, 1 tail
+        transformed.x += uLen * 0.16 * pow(along, 1.7) * sin(uTime * 5.0 - along * 5.5);`);
+   };
+   mesh.material.customProgramCacheKey = () => 'fish';
+   ```
+
+   - **Swimming:** a sine wave down the body, stronger toward the tail.
+   - **Wings:** vertices move up and down by how far they are from the body
+     (squared, so the tips move most).
+   - **Legs:** vertices below the hips swing forward and back, in diagonal
+     pairs for a trot.
+   - **Hops:** squash and stretch the whole model (scale y up, x and z down),
+     and move it along an arc.
+
+3. **Check the picture's view.** Meshy usually turns a creature to face +Z
+   even when the picture was a side view, but not always. Look at the
+   preview's front view before choosing the body axis.
 
 ## Prompts and pictures
 

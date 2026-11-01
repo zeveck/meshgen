@@ -19,14 +19,13 @@ It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 ## See it
 
 <a href="https://zeveck.github.io/meshgen/mage/">
-  <img src="examples/mage/screenshot.png" alt="Mage Playground: a spiky-haired mage with a crystal staff and a flaming sword among training dummies" width="100%">
+  <img src="examples/mage/front.png" alt="A spiky-haired mage with red and purple sunglasses casting a spell, a crystal staff in one hand and a flaming sword in the other" width="100%">
 </a>
 
 **[Play the Mage Playground](https://zeveck.github.io/meshgen/mage/)** in
-your browser (keyboard and mouse): a spiky-haired mage with one purple and
-one red sunglass lens, a crystal staff and a sword that burns. The source is
-in [`examples/mage`](examples/mage). The character, staff and sword came from
-three imagegen2 concept pictures and these meshgen commands:
+your browser (keyboard and mouse), or see
+[all the demos](https://zeveck.github.io/meshgen/). The mage, staff and
+sword came from three imagegen2 concept pictures and these meshgen commands:
 
 ```
 /meshgen character mage --image concepts/mage.png --height 1.75 --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave
@@ -34,10 +33,46 @@ three imagegen2 concept pictures and these meshgen commands:
 /meshgen model sword --image concepts/sword.png --height 1.0
 ```
 
-Every asset gets a preview sheet, so you (or your agent) can check it at a
-glance: four views with the height, a red arrow on the ground pointing to the
-front, then frames from every clip.
-[Here is the mage's](examples/mage/assets/meshgen/mage/preview/sheet.png).
+<a href="https://zeveck.github.io/meshgen/mage/"><img src="examples/media/mage.gif" alt="The mage swings a flaming sword, then casts an arcane nova" width="100%"></a>
+
+The clips (slash, spell, walk, run and seven more) are Meshy's, on Meshy's
+rig. The flames, fireballs and nova are three.js effects in the game's code.
+
+### Creatures, animated in code
+
+Meshy rigs humanoids. Everything else is a plain model you can bring to life
+in a few lines of shader code, like these four from the
+[Creature Showcase](https://zeveck.github.io/meshgen/creatures/)
+(30 credits each, no skeleton):
+
+<table>
+  <tr>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/betta.gif" alt="A betta fish swimming" width="100%"></a></td>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flapping its wings" width="100%"></a></td>
+  </tr>
+  <tr>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/frog.gif" alt="A tree frog hopping between lily pads" width="100%"></a></td>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/cat.gif" alt="A tabby cat trotting" width="100%"></a></td>
+  </tr>
+</table>
+
+### Ready for 3D printing
+
+Ask for a print instead of a game asset and meshgen switches gears: full
+detail, sizes in millimeters, STL and 3MF files, and Meshy's print check,
+repair, multi-color and split steps.
+[An 80 mm frog figurine](examples/print) took 60 credits:
+
+<img src="examples/media/frog-figurine.png" alt="A frog figurine on a mossy base from four sides, then split into a frog and a base for printing" width="100%">
+
+### A preview sheet with every asset
+
+meshgen checks each asset with a screenshot sheet: four views with the
+height and a red arrow pointing to the front, then frames from every clip.
+Here is the top of the mage's
+([full sheet](examples/mage/assets/meshgen/mage/preview/sheet.png)):
+
+<img src="examples/media/mage-sheet.png" alt="The mage from the front, three-quarter, side and back, then frames of its idle, jump and slash clips" width="100%">
 
 ---
 
@@ -148,7 +183,11 @@ original downloads in `source/`. Every command prints one JSON line.
 | `rig <name>` | `POST /v1/rigging`: a skeleton, plus free walk and run clips | 5 |
 | `animate <name> <actions...>` | `POST /v1/animations`, up to 10 clips a call | 3 each |
 | `remesh <name>` | `POST /v1/remesh` | 5 |
+| `model <name> --print` | as `model`, at full detail with STL and 3MF | 30 |
 | `printcheck <name>` | `POST /v1/print/analyze`: holes and thin walls | free |
+| `repair <name>` | `POST /v1/print/repair`: fixes holes, thickens thin walls | 10 |
+| `multicolor <name>` | `POST /v1/print/multi-color`: a multi-color 3MF for your printer | 10 |
+| `split <name>` | `POST /v1/print/split`: parts that print separately | 10 |
 | `balance` | `GET /v1/balance` | free |
 | `actions [word]` | `GET /v1/animations/library`: 600+ animations | free |
 | `rebuild <name>` | none: remakes the GLB from saved files with new options | free |
@@ -173,6 +212,11 @@ Plus:
   still busy when the command stops waiting, run it again and it picks the
   job back up.
 - **No overwrites.** A new model with a taken name becomes `-v2`, `-v3`.
+- **Game or print, not both at once.** Game guidance is the default; when
+  you ask for a print, the agent reads a separate
+  [`printing.md`](skills/meshgen/printing.md) about millimeters, solid
+  shapes, overhangs and Meshy's repair, multi-color and split steps, and
+  skips the rigging and engine advice.
 - **Zero dependencies.** Node's built-in `fetch`, `zlib` and
   `process.loadEnvFile`; three.js 0.186.1 (MIT) is vendored for previews.
 
@@ -198,13 +242,21 @@ versus animating in code.
 | `--max-texture <px>` | Shrink PNG textures in the GLB to fit (default 1024; `0` keeps them) |
 | `--formats <list>` | Also save `fbx`, `obj`, `usdz`, `stl` or `3mf` |
 | `--actions <list>` | Animations for `character` |
+| `--quadruped` | A four-legged rig with a walk clip (experimental) |
 | `--root-motion` | Keep the clips' own forward movement (normally they play in place) |
 | `--no-root-motion` | Back to in-place clips, with `rebuild` or `animate` |
 | `--dir <path>` | Where asset folders go (default `assets/meshgen`) |
 | `--max-credits <n>` | Refuse to start if it would cost more |
 | `--wait <seconds>` | How long to wait for Meshy before handing back (default 540) |
-| `--height-mm <n>` | Print height for `printcheck` |
-| `--printer <type>` | `fdm`, `sla` or `full_color` for `printcheck` |
+| `--print` | Make a `model` for 3D printing |
+| `--height-mm <n>` | Planned print height in millimeters |
+| `--printer <type>` | `fdm`, `sla` or `full_color`, for `printcheck` and `repair` |
+| `--colors <n>` | Up to 16 colors, for `multicolor` (default 4) |
+| `--style <s>` | `realistic` or `cartoon`, for `multicolor` |
+| `--printer-brand <b>` | Slicer preset for `multicolor`: `bambu`, `prusa`, `creality` and more |
+| `--parts <text>` | Which parts `split` cuts along |
+| `--plate` | `split` lays the parts flat on the build plate |
+| `--connectors` | `split` adds pegs so the parts fit together |
 | `--clips <list>` | Which clips `preview` shows |
 | `--port <n>` | Port for `view` (default 8737) |
 | `--category <name>` | Filter for `actions` |

@@ -25,9 +25,8 @@ jobs:
       - name: Collect the demos
         run: |
           mkdir -p _site
-          cp -r examples/mage _site/mage
-          rm -f _site/mage/.gitignore
-          printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=mage/"><title>meshgen</title><a href="mage/">Mage Playground</a>\n' > _site/index.html
+          cp -r examples/. _site/
+          find _site -name .gitignore -delete
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

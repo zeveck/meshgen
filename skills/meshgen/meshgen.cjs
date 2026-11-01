@@ -37,7 +37,7 @@ const { execFile } = require("child_process");
 })();
 
 // Date-based release version; keep in sync with package.json (tests check).
-const MESHGEN_VERSION = "2026.11.1";
+const MESHGEN_VERSION = "2026.11.1.2";
 
 // MESHGEN_API_BASE exists for the offline tests, which run a fake Meshy.
 const API_BASE = (process.env.MESHGEN_API_BASE || "https://api.meshy.ai").replace(/\/$/, "");
@@ -60,6 +60,9 @@ const ENDPOINTS = {
   animate: "/openapi/v1/animations",
   remesh: "/openapi/v1/remesh",
   print: "/openapi/v1/print/analyze",
+  repair: "/openapi/v1/print/repair",
+  multicolor: "/openapi/v1/print/multi-color",
+  split: "/openapi/v1/print/split",
 };
 
 // Plain game words for Meshy animation library actions (GET
@@ -120,7 +123,10 @@ Commands:
   inspect <name|file.glb>         Height, triangles, bones, clips, textures (free)
   preview <name|file.glb>         Screenshot sheet: four views plus frames of each clip
   view <name|file.glb>            Open an interactive viewer on a local web address
-  printcheck <name>               Meshy's 3D-print check: holes, thin walls (free)
+  printcheck <name>               3D print: check for holes and thin walls (free)
+  repair <name>                   3D print: fix holes and thicken thin walls (10)
+  multicolor <name>               3D print: a multi-color 3MF for your printer (10)
+  split <name>                    3D print: cut into parts that print separately (10)
 
 Options:
   --prompt <text>       What to make
@@ -136,13 +142,21 @@ Options:
   --max-texture <px>    Shrink the final GLB's textures to fit (default ${DEFAULT_MAX_TEXTURE}; 0 keeps them)
   --formats <list>      glb (default), fbx, obj, usdz, stl, 3mf
   --actions <list>      Actions for character (default ${DEFAULT_CHARACTER_ACTIONS.join(",")})
+  --quadruped           rig, character: four-legged rig, walk clip only (experimental)
   --root-motion         Keep clips' forward motion (default: clips play in place)
   --no-root-motion      Back to in-place clips (rebuild, animate)
   --dir <path>          Where asset folders go (default ${DEFAULT_DIR})
   --max-credits <n>     Refuse to start if the estimate is higher
   --wait <seconds>      How long to wait for Meshy (default ${DEFAULT_WAIT_SECONDS}); rerun to resume
-  --height-mm <n>       printcheck: planned print height
-  --printer <type>      printcheck: fdm (default), sla or full_color
+  --print               model: for a 3D print (full detail, STL and 3MF, no game remesh)
+  --height-mm <n>       Planned print height in millimeters
+  --printer <type>      printcheck, repair: fdm (default), sla or full_color
+  --colors <n>          multicolor: up to 16 (default 4)
+  --style <s>           multicolor: realistic (default) or cartoon
+  --printer-brand <b>   multicolor: bambu (default), prusa, creality, elegoo, ...
+  --parts <text>        split: name the parts to cut along ("head, arms, base")
+  --plate               split: lay the parts flat on the build plate
+  --connectors          split: add pegs so the parts fit back together
   --clips <list>        preview: only these clips
   --category <name>     actions: only this category (WalkAndRun, Fighting, ...)
   --port <n>            view: port (default 8737)
@@ -192,7 +206,7 @@ function sha1(value) {
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n");
   fs.renameSync(tmp, file);
 }
@@ -205,8 +219,13 @@ const VALUE_FLAGS = new Set([
   "--prompt", "--image", "--texture-prompt", "--height", "--polycount", "--topology", "--pose",
   "--texture", "--formats", "--actions", "--dir", "--max-credits", "--wait", "--height-mm",
   "--printer", "--clips", "--port", "--category", "--max-texture",
+  "--colors", "--style", "--printer-brand", "--parts",
 ]);
-const BOOL_FLAGS = new Set(["--draft", "--pbr", "--root-motion", "--no-root-motion", "--dry-run", "--no-history"]);
+const BOOL_FLAGS = new Set([
+  "--draft", "--pbr", "--root-motion", "--no-root-motion", "--quadruped", "--print", "--plate", "--connectors",
+  "--dry-run", "--no-history",
+]);
+const PRINTER_BRANDS = ["bambu", "anycubic", "creality", "elegoo", "flashforge", "prusa", "qidi", "snapmaker", "ankermake"];
 
 function parseArgs(argv) {
   const opts = { command: null, positional: [], images: [] };
@@ -256,6 +275,14 @@ function validateOpts(opts) {
   numberOpt(opts, "heightMm", 1, 1000, "--height-mm");
   numberOpt(opts, "port", 1, 65535, "--port");
   numberOpt(opts, "maxTexture", 0, 16384, "--max-texture");
+  numberOpt(opts, "colors", 1, 16, "--colors");
+  if (opts.style && !["realistic", "cartoon"].includes(opts.style)) {
+    throw new MeshgenError("--style must be realistic or cartoon.");
+  }
+  if (opts.printerBrand && !PRINTER_BRANDS.includes(opts.printerBrand)) {
+    throw new MeshgenError(`--printer-brand must be one of ${PRINTER_BRANDS.join(", ")}.`);
+  }
+  if (opts.print && !opts.formats) opts.formats = "glb,stl,3mf";
   if (opts.polycount !== undefined) opts.polycount = Math.round(opts.polycount);
   if (opts.topology && !["triangle", "quad"].includes(opts.topology)) {
     throw new MeshgenError("--topology must be triangle or quad.");
@@ -315,7 +342,7 @@ function friendlyError(status, message, context) {
   if (status === 403) return `Meshy can't do this with that model: ${m}`;
   if (status === 404) return `Meshy can't find that ${context || "task"}; its files may have expired (Meshy keeps them 3 days). ${m}`;
   if (status === 422 && context === "rig") {
-    return "Meshy couldn't find a humanoid pose to rig. Rigging needs a textured two-legged character facing forward; an A-pose front-view picture works best.";
+    return `Meshy couldn't find a pose to rig (${m}). Rigging needs a textured character facing forward: two-legged in an A-pose, or four-legged with --quadruped.`;
   }
   return `Meshy returned ${status}: ${m}`;
 }
@@ -409,9 +436,40 @@ function loadManifest(dir) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+// Two meshgen commands can work on one asset at once (say multicolor and
+// split), so a save keeps job records the other one wrote in the meantime.
+function withLock(file, fn) {
+  const lock = `${file}.lock`;
+  for (let i = 0; ; i++) {
+    try {
+      fs.closeSync(fs.openSync(lock, "wx"));
+      break;
+    } catch (err) {
+      if (err.code !== "EEXIST") break;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 10000) fs.rmSync(lock, { force: true }); } catch {}
+      if (i > 500) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
+}
+
 function saveManifest(ctx) {
-  ctx.manifest.updatedAt = new Date().toISOString();
-  writeJson(path.join(ctx.dir, "meshgen.json"), ctx.manifest);
+  fs.mkdirSync(ctx.dir, { recursive: true });
+  withLock(path.join(ctx.dir, "meshgen.json"), () => saveManifestNow(ctx));
+}
+
+function saveManifestNow(ctx) {
+  const m = ctx.manifest;
+  const disk = loadManifest(ctx.dir);
+  if (disk) {
+    for (const [step, task] of Object.entries(disk.tasks || {})) {
+      if (!(step in m.tasks) && !ctx.dropped.has(step)) m.tasks[step] = task;
+    }
+    m.print = { ...(disk.print || {}), ...(m.print || {}) };
+  }
+  m.updatedAt = new Date().toISOString();
+  writeJson(path.join(ctx.dir, "meshgen.json"), m);
 }
 
 // A new model never overwrites an asset: an unfinished one with the same
@@ -419,8 +477,11 @@ function saveManifest(ctx) {
 // Only what changes Meshy's model counts: rerunning a pending job with other
 // clips, texture limits or root motion resumes it instead of paying again.
 function requestHash(r) {
-  const { prompt, images, texturePrompt, draft, polycount, topology, pose, pbr, texture, formats, character } = r;
-  return sha1({ prompt, images, texturePrompt, draft, polycount, topology, pose, pbr, texture, formats, character });
+  const { prompt, images, texturePrompt, draft, polycount, topology, pose, pbr, texture, formats, character, print, quadruped } = r;
+  return sha1({
+    prompt, images, texturePrompt, draft, polycount, topology, pose, pbr, texture, formats, character,
+    print: print || undefined, quadruped: quadruped || undefined,
+  });
 }
 
 function claimDir(opts, name, request) {
@@ -499,9 +560,10 @@ async function runTask(ctx, step, kind, body, label) {
     } catch (err) {
       if (err.extra && err.extra.uncertain) {
         const found = await recoverTask(endpoint, t.requestedAt, body);
-        if (!found) { delete tasks[step]; saveManifest(ctx); throw err; }
+        if (!found) { ctx.dropped.add(step); delete tasks[step]; saveManifest(ctx); throw err; }
         res = { result: found.id };
       } else {
+        ctx.dropped.add(step);
         delete tasks[step];
         saveManifest(ctx);
         throw err;
@@ -525,6 +587,7 @@ async function runTask(ctx, step, kind, body, label) {
     if (res) {
       retryAfter = res.headers.get("retry-after");
       if (res.status === 404) {
+        ctx.dropped.add(step);
         delete tasks[step];
         saveManifest(ctx);
         throw new MeshgenError(`Meshy no longer has the ${label} job (it keeps jobs 3 days). Run the command again to start that step over.`);
@@ -584,6 +647,7 @@ function newCtx(opts, claimed, request) {
     dir: claimed.dir,
     manifest,
     created: [],
+    dropped: new Set(),
     spent: 0,
     deadline: Date.now() + (opts.wait || DEFAULT_WAIT_SECONDS) * 1000,
   };
@@ -597,7 +661,7 @@ function newCtx(opts, claimed, request) {
 function defaultPolycount(req) {
   if (req.polycount) return req.polycount;
   const formats = req.formats || ["glb"];
-  if (formats.includes("stl") || formats.includes("3mf")) return null;
+  if (req.print || formats.includes("stl") || formats.includes("3mf")) return null;
   return req.character ? CHARACTER_POLYCOUNT : PROP_POLYCOUNT;
 }
 
@@ -692,6 +756,9 @@ async function rigModel(ctx) {
   const height = m.request.height || DEFAULT_HEIGHT;
   const modelFile = path.join(ctx.dir, "source", "model.glb");
   const body = { height_meters: height };
+  // Only in Meshy's OpenAPI spec so far; quadruped rigs get a walk clip and
+  // can't use the animation library.
+  if (m.request.quadruped) body.animation_type = "quadruped";
   if (m.modelTask && m.modelTask.id && !isExpired(m.modelTask)) body.input_task_id = m.modelTask.id;
   else {
     if (!fs.existsSync(modelFile)) throw new MeshgenError("source/model.glb is missing, so there's nothing to rig.");
@@ -706,6 +773,11 @@ async function rigModel(ctx) {
   const task = await runTask(ctx, "rig", "rig", body, "rig");
   const r = task.result || {};
   const src = path.join(ctx.dir, "source");
+  if (!m.rig || m.rig.id !== task.id) {
+    // A new skeleton: the old rig's free clips don't fit it.
+    for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
+    m.clips = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined);
+  }
   await download(r.rigged_character_glb_url, path.join(src, "rigged.glb"));
   const basic = r.basic_animations || {};
   if (basic.walking_glb_url) await download(basic.walking_glb_url, path.join(src, "walk.glb"));
@@ -791,6 +863,7 @@ function buildFinal(ctx) {
   const rigged = path.join(ctx.dir, "source", "rigged.glb");
   let glb;
   m.warnings = [];
+  m.notes = [];
   if (fs.existsSync(rigged)) {
     const clips = m.clips.map((c) => ({
       buf: fs.readFileSync(path.join(ctx.dir, c.source)),
@@ -801,6 +874,15 @@ function buildFinal(ctx) {
     const merged = mergeClips(fs.readFileSync(rigged), clips, { inPlace: !m.request.rootMotion });
     glb = merged.glb;
     if (merged.warnings.length) m.warnings = merged.warnings;
+    // Meshy's four-legged rigs have come back at the wrong scale (a 0.3 m cat
+    // measured 0.005 m), so a rig more than twice off its requested height is
+    // resized. Humanoid rigs come back at the requested height.
+    const target = (m.rig && m.rig.height) || m.request.height;
+    const measured = inspectGlb(glb).height;
+    if (target && measured && (measured / target < 0.5 || measured / target > 2)) {
+      glb = scaleToHeight(glb, target);
+      m.notes = [`Meshy's rig was ${measured} m tall, so meshgen scaled it to ${target} m.`];
+    }
   } else {
     glb = fs.readFileSync(path.join(ctx.dir, "source", "model.glb"));
     if (m.request.height) glb = scaleToHeight(glb, m.request.height);
@@ -810,7 +892,7 @@ function buildFinal(ctx) {
     const shrunk = shrinkTextures(glb, maxTexture);
     glb = shrunk.glb;
     if (shrunk.skipped.length) {
-      m.warnings = (m.warnings || []).concat(`Kept ${shrunk.skipped.join(", ")} textures as they are: meshgen only shrinks PNG (Meshy's JPEGs are already compact).`);
+      m.notes.push(`Kept ${shrunk.skipped.join(", ")} textures as they are: meshgen shrinks PNG only, and Meshy's JPEGs are already compact.`);
     }
   }
   fs.writeFileSync(out, glb);
@@ -1300,6 +1382,51 @@ function shrinkTextures(buf, maxSize) {
   return { glb: repackGlb(gltf, replace), changed, skipped };
 }
 
+// Binary STL of every mesh in the scene: millimeters, standing on z = 0 with
+// Z up as slicers expect, scaled to heightMm when given.
+function glbToStl(buf, heightMm) {
+  const gltf = parseGlb(buf);
+  const { json } = gltf;
+  const parents = parentMap(json);
+  const tris = [];
+  (json.nodes || []).forEach((node, i) => {
+    if (node.mesh === undefined) return;
+    const m = worldMatrix(json, i, parents);
+    for (const prim of json.meshes[node.mesh].primitives) {
+      if ((prim.mode === undefined ? 4 : prim.mode) !== 4) continue;
+      const pos = readAccessor(gltf, prim.attributes.POSITION).array;
+      const idx = prim.indices !== undefined ? readAccessor(gltf, prim.indices).array : null;
+      const count = idx ? idx.length : pos.length / 3;
+      for (let k = 0; k < count; k++) {
+        const v = idx ? idx[k] : k;
+        tris.push(applyPoint(m, [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]));
+      }
+    }
+  });
+  let lo = [Infinity, Infinity, Infinity];
+  let hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of tris) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); }
+  const scale = heightMm && hi[1] > lo[1] ? heightMm / (hi[1] - lo[1]) : 1000;
+  const cx = (lo[0] + hi[0]) / 2;
+  const cz = (lo[2] + hi[2]) / 2;
+  // glTF (x, y up, z toward viewer) -> STL (x, -z, y up).
+  const P = (p) => [(p[0] - cx) * scale, -(p[2] - cz) * scale, (p[1] - lo[1]) * scale];
+  const n = tris.length / 3;
+  const out = Buffer.alloc(84 + n * 50);
+  out.write("meshgen STL, millimeters, Z up", 0, "ascii");
+  out.writeUInt32LE(n, 80);
+  for (let t = 0; t < n; t++) {
+    const a = P(tris[t * 3]), b = P(tris[t * 3 + 1]), c = P(tris[t * 3 + 2]);
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const nx = u[1] * w[2] - u[2] * w[1], ny = u[2] * w[0] - u[0] * w[2], nz = u[0] * w[1] - u[1] * w[0];
+    const len = Math.hypot(nx, ny, nz) || 1;
+    let o = 84 + t * 50;
+    for (const v of [nx / len, ny / len, nz / len, ...a, ...b, ...c]) { out.writeFloatLE(v, o); o += 4; }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Preview and view (three.js viewer page, screenshots through playwright-cli)
 // ---------------------------------------------------------------------------
@@ -1406,7 +1533,7 @@ function modelRequestFrom(opts, { character = false } = {}) {
     images: opts.images.map((p) => (/^(https?:|data:)/.test(p) ? p : path.relative(process.cwd(), path.resolve(p)).split(path.sep).join("/"))),
     texturePrompt: opts.texturePrompt || null,
     draft: !!opts.draft,
-    height: opts.height || (character ? DEFAULT_HEIGHT : null),
+    height: opts.height || (opts.print && opts.heightMm ? opts.heightMm / 1000 : null) || (character ? DEFAULT_HEIGHT : null),
     polycount: opts.polycount || null,
     topology: opts.topology || null,
     pose: opts.pose || (character ? "a-pose" : null),
@@ -1415,6 +1542,8 @@ function modelRequestFrom(opts, { character = false } = {}) {
     formats: opts.formats || ["glb"],
     rootMotion: !!opts.rootMotion,
     maxTexture: opts.maxTexture,
+    quadruped: !!opts.quadruped,
+    print: !!opts.print,
     character,
     actions: character ? (opts.actions || DEFAULT_CHARACTER_ACTIONS) : null,
   };
@@ -1435,9 +1564,11 @@ function dryRun(command, opts, request, credits) {
     }
   }
   if (command === "character" || command === "rig") {
-    steps.push({ endpoint: `POST ${ENDPOINTS.rig}`, body: { input_task_id: "$model", height_meters: (request && request.height) || opts.height || DEFAULT_HEIGHT } });
+    const rigBody = { input_task_id: "$model", height_meters: (request && request.height) || opts.height || DEFAULT_HEIGHT };
+    if ((request && request.quadruped) || opts.quadruped) rigBody.animation_type = "quadruped";
+    steps.push({ endpoint: `POST ${ENDPOINTS.rig}`, body: rigBody });
   }
-  if (command === "character" || command === "animate") {
+  if ((command === "character" && !request.quadruped) || command === "animate") {
     const specs = command === "character" ? request.actions : opts.positional.slice(1);
     const ids = specs.map((sp) => {
       try { const a = resolveAction(sp, null); return a.free ? `${a.clip} (free with the rig)` : a.id; } catch { return `${sp} (looked up in Meshy's library)`; }
@@ -1483,6 +1614,7 @@ async function finish(ctx, command, before, extra = {}) {
     joints: info && info.joints,
     textures: info && info.textures.length,
     warnings,
+    ...(m.notes && m.notes.length ? { notes: m.notes } : {}),
     creditsUsed: used,
     creditsLeft: after ? after.balance : null,
     ...extra,
@@ -1511,7 +1643,8 @@ async function tryPreview(ctx) {
 async function cmdModel(opts, character) {
   const name = opts.positional[0];
   const request = modelRequestFrom(opts, { character });
-  const credits = modelCredits(request) + (character ? 5 + actionCredits(request.actions) : 0);
+  if (character && request.print) throw new MeshgenError("Prints don't need a rig: use model --print instead of character.");
+  const credits = modelCredits(request) + (character ? 5 + (request.quadruped ? 0 : actionCredits(request.actions)) : 0);
   if (opts.dryRun) return dryRun(character ? "character" : "model", opts, request, credits);
   const claimed = claimDir(opts, name, request);
   const before = claimed.manifest ? null : await balance();
@@ -1527,7 +1660,10 @@ async function cmdModel(opts, character) {
   if (!fs.existsSync(path.join(ctx.dir, "source", "model.glb")) || !ctx.manifest.modelTask) await makeModel(ctx);
   if (character) {
     if (!ctx.manifest.rig) await rigModel(ctx);
-    await animateModel(ctx, ctx.manifest.request.actions);
+    const actions = ctx.manifest.request.quadruped
+      ? ["walk", "run"].filter((w) => hasFreeClip(ctx, w))
+      : ctx.manifest.request.actions;
+    await animateModel(ctx, actions);
   }
   buildFinal(ctx);
   const result = await finish(ctx, character ? "character" : "model", before);
@@ -1579,8 +1715,10 @@ async function cmdRig(opts) {
   checkBudget(opts, credits, before);
   const ctx = newCtx(opts, claimed);
   if (opts.height) ctx.manifest.request.height = opts.height;
+  if (opts.quadruped) ctx.manifest.request.quadruped = true;
   await rigModel(ctx);
-  await animateModel(ctx, ["walk", "run", ...paid]);
+  const specs = ctx.manifest.request.quadruped ? ["walk", "run"].filter((w) => hasFreeClip(ctx, w)) : ["walk", "run", ...paid];
+  await animateModel(ctx, specs);
   buildFinal(ctx);
   const result = await finish(ctx, "rig", before);
   Object.assign(result, await tryPreview(ctx));
@@ -1652,12 +1790,7 @@ async function cmdPrintcheck(opts) {
   const claimed = openAsset(opts, opts.positional[0]);
   const m = claimed.manifest;
   const body = {};
-  if (m.modelTask && !isExpired(m.modelTask)) body.input_task_id = m.modelTask.id;
-  else {
-    const file = path.join(claimed.dir, "source", "model.glb");
-    if (!fs.existsSync(file)) throw new MeshgenError(`${claimed.name} has no model yet.`);
-    body.model_url = dataUri(file, "model/gltf-binary");
-  }
+  Object.assign(body, printInput(claimed, true));
   body.printer_type = opts.printer || "fdm";
   if (opts.heightMm) body.intended_print_height_mm = opts.heightMm;
   if (opts.dryRun) return out({ success: true, dryRun: true, command: "printcheck", credits: 0, steps: [{ endpoint: `POST ${ENDPOINTS.print}`, body: { ...body, model_url: body.model_url && "data:..." } }] });
@@ -1666,11 +1799,91 @@ async function cmdPrintcheck(opts) {
   out({ success: true, name: claimed.name, printability: task.printability || task.result || task });
 }
 
+// The model Meshy should work on for a print step: its own job id while
+// Meshy still has it (never the game remesh), otherwise the saved GLB.
+// Only printcheck uses a repaired model: repair drops the colors, and Meshy's
+// multi-color and split steps refuse repair jobs.
+function printInput(claimed, preferRepair) {
+  const m = claimed.manifest;
+  const repaired = preferRepair && m.tasks && Object.keys(m.tasks).filter((k) => k.startsWith("repair-")).map((k) => m.tasks[k])
+    .filter((t) => t.status === "SUCCEEDED" && !isExpired(t)).sort((a, b) => b.requestedAt - a.requestedAt)[0];
+  if (repaired) return { input_task_id: repaired.id };
+  const original = m.originalModelTask || m.modelTask;
+  if (original && original.id && !isExpired(original)) return { input_task_id: original.id };
+  const full = path.join(claimed.dir, "source", fs.existsSync(path.join(claimed.dir, "source", "model-full.glb")) ? "model-full.glb" : "model.glb");
+  if (!fs.existsSync(full)) throw new MeshgenError(`${claimed.name} has no model yet.`);
+  return { model_url: dataUri(full, "model/gltf-binary") };
+}
+
+function printSize(opts, body) {
+  if (opts.printer) body.printer_type = opts.printer;
+  if (opts.heightMm) body.intended_print_height_mm = opts.heightMm;
+  return body;
+}
+
+// repair, multicolor and split: one Meshy job, files saved in print/.
+async function cmdPrintStep(opts, kind) {
+  const claimed = openAsset(opts, opts.positional[0]);
+  let body;
+  if (kind === "repair") {
+    body = printSize(opts, printInput(claimed, false));
+  } else if (kind === "multicolor") {
+    body = { ...printInput(claimed, false), max_colors: opts.colors || 4, style: opts.style || "realistic", printer_brand: opts.printerBrand || "bambu" };
+  } else {
+    body = { ...printInput(claimed, false), mode: opts.parts ? "by_parts" : "auto", target_formats: ["glb", "stl", "3mf"], layout: opts.plate ? "on_plate" : "assembled" };
+    if (opts.parts) body.prompt = opts.parts;
+    if (opts.connectors) body.connectors = true;
+  }
+  if (opts.dryRun) {
+    return out({ success: true, dryRun: true, command: kind, credits: 10, steps: [{ endpoint: `POST ${ENDPOINTS[kind]}`, body: { ...body, model_url: body.model_url && "data:..." } }] });
+  }
+  const before = await balance();
+  checkBudget(opts, 10, before);
+  const ctx = newCtx(opts, claimed);
+  const step = `${kind}-${sha1(body).slice(0, 8)}`;
+  const old = ctx.manifest.tasks[step];
+  if (old && old.status === "SUCCEEDED" && isExpired(old, 0)) {
+    // Its download links are dead, so make it again.
+    ctx.dropped.add(step);
+    delete ctx.manifest.tasks[step];
+  }
+  const notes = [];
+  if (!ctx.manifest.request.print && !ctx.manifest.request.formats.some((f) => f === "stl" || f === "3mf")) {
+    notes.push("This model was made for games (game-sized, about 10,000 triangles). For a detailed print, make it again with model --print.");
+  }
+  const task = await runTask(ctx, step, kind, body, kind === "multicolor" ? "multi-color print file" : kind);
+  const files = [];
+  for (const [fmt, url] of Object.entries(task.model_urls || {})) {
+    if (!url) continue;
+    const file = path.join(ctx.dir, "print", `${ctx.name}-${kind}.${fmt}`);
+    await download(url, file);
+    files.push(path.relative(process.cwd(), file));
+  }
+  if (!files.length) throw new MeshgenError(`Meshy finished the ${kind} but sent no files.`);
+  // Repair answers with a GLB; slicers want STL, in millimeters, Z up.
+  const repairedGlb = files.find((f) => f.endsWith("-repair.glb"));
+  if (repairedGlb) {
+    const mm = opts.heightMm || (ctx.manifest.request.height ? ctx.manifest.request.height * 1000 : null);
+    if (mm) {
+      const stl = repairedGlb.replace(/\.glb$/, ".stl");
+      fs.writeFileSync(stl, glbToStl(fs.readFileSync(repairedGlb), mm));
+      files.push(stl);
+    } else {
+      notes.push("No STL written: give --height-mm so meshgen knows the print size.");
+    }
+  }
+  ctx.manifest.print = { ...(ctx.manifest.print || {}), [kind]: files.map((f) => path.relative(ctx.dir, f).split(path.sep).join("/")) };
+  saveManifest(ctx);
+  let after = null;
+  try { after = await balance(); } catch {}
+  out({ success: true, command: kind, name: ctx.name, files, ...(notes.length ? { notes } : {}), creditsUsed: ctx.spent, creditsLeft: after ? after.balance : null });
+}
+
 async function main(argv = process.argv.slice(2)) {
   if (argv.length === 1 && argv[0] === "--version") { process.stdout.write(`${MESHGEN_VERSION}\n`); return; }
   if (!argv.length || argv.includes("--help") || argv.includes("-h") || argv[0] === "help") { process.stdout.write(HELP + "\n"); return; }
   const opts = parseArgs(argv);
-  const needsName = ["model", "character", "remesh", "rebuild", "rig", "animate", "inspect", "preview", "view", "printcheck"];
+  const needsName = ["model", "character", "remesh", "rebuild", "rig", "repair", "multicolor", "split", "animate", "inspect", "preview", "view", "printcheck"];
   if (needsName.includes(opts.command) && !opts.positional[0]) {
     throw new MeshgenError(`meshgen ${opts.command} needs a name, like: meshgen ${opts.command} hero`);
   }
@@ -1690,6 +1903,10 @@ async function main(argv = process.argv.slice(2)) {
     case "preview": return cmdPreview(opts);
     case "view": return cmdView(opts);
     case "printcheck": return cmdPrintcheck(opts);
+    case "repair":
+    case "multicolor":
+    case "split":
+      return cmdPrintStep(opts, opts.command);
     default:
       throw new MeshgenError(`Unknown command "${opts.command}". Run meshgen --help.`);
   }
@@ -1718,6 +1935,7 @@ if (require.main === module) {
     mergeClips,
     scaleToHeight,
     shrinkTextures,
+    glbToStl,
     decodePng,
     encodePng,
   };

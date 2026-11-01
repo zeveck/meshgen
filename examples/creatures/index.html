@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creature Showcase</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #141824; color: #f3efe6; font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; }
+  .label { position: fixed; padding: 6px 10px; background: rgba(15, 18, 28, .7); border-radius: 0 0 10px 0; pointer-events: none; }
+  .label b { display: block; font-size: 15px; }
+  .label span { opacity: .8; font-size: 12px; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; background: #141824; }
+  #hint { position: fixed; right: 10px; bottom: 8px; opacity: .7; font-size: 12px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../mage/vendor/three.module.js", "three/addons/": "../mage/vendor/addons/" } }
+</script>
+</head>
+<body>
+<div id="loading">Waking the creatures…</div>
+<div id="hint">Click a scene to see it on its own, click again for all four</div>
+<script type="module" src="./showcase.js"></script>
+</body>
+</html>
