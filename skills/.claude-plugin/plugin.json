@@ -1,6 +1,6 @@
 {
   "name": "meshgen",
-  "version": "2026.11.1.3",
+  "version": "2026.11.1.4",
   "description": "Make 3D game assets with Meshy through a zero-dependency CLI: models from text or pictures, auto-rigged characters with animations, one game-ready GLB each, and screenshot previews. Requires a MESHY_API_KEY.",
   "author": { "name": "zeveck" },
   "homepage": "https://github.com/zeveck/meshgen",

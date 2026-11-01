@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.1.4
+
+- Fixes from a fourth bug review (#4): if a new rig (for one Meshy had deleted) is still being made when the command stops waiting, running it again picks up that rig instead of paying for another; text models saved by 2026.11.1, which had no expiry recorded, now expire after 3 days like everything else, so they no longer get stuck.
+
 ## 2026.11.1.3
 
 - Fixes from a third bug review (#3): clips made again on a new rig keep their looping (idle, walk and run kept looping), and if that remake times out, running the command again picks up the same Meshy job instead of paying again and dropping the clips.
