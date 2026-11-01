@@ -687,3 +687,51 @@ test('clips remade on a new rig keep their loop flag, and a pending remake resum
     fake.server.close();
   }
 });
+
+test('a new rig for an expired one that times out is picked up, not paid for again', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash', '--no-history'], { cwd, base: fake.base });
+    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    m.rig.expiresAt = m.tasks.rig.expiresAt = m.modelTask.expiresAt = 1;
+    fs.writeFileSync(file, JSON.stringify(m));
+    fake.state.slow = 'rigging';
+    for (let i = 0; i < 2; i++) {
+      const r = await run(['animate', 'hero', 'cast', '--wait', '1', '--no-history'], { cwd, base: fake.base });
+      assert.equal(r.json.pending, true, JSON.stringify(r.json));
+    }
+    fake.state.slow = false;
+    const again = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    assert.equal(again.json.success, true, JSON.stringify(again.json));
+    assert.deepEqual(again.json.clips.slice().sort(), ['cast', 'idle', 'slash']);
+    assert.equal(fake.state.posts.filter((p) => p.kind === 'rigging').length, 2);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a text model saved without an expiry (2026.11.1) still expires after 3 days', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--prompt', 'a knight', '--actions', 'idle', '--no-history'], { cwd, base: fake.base });
+    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    m.modelTask.expiresAt = null;
+    for (const step of ['preview', 'refine']) {
+      m.tasks[step].expiresAt = null;
+      delete m.tasks[step].task.expires_at;
+      m.tasks[step].task.finished_at = Date.now() - 4 * 864e5;
+    }
+    fs.writeFileSync(file, JSON.stringify(m));
+    const r = await run(['rig', 'hero', '--height', '2', '--no-history'], { cwd, base: fake.base });
+    assert.equal(r.json.success, true, JSON.stringify(r.json));
+    const rig = fake.state.posts.filter((p) => p.kind === 'rigging').pop().json;
+    assert.equal(rig.input_task_id, undefined);
+    assert.match(rig.model_url, /^data:/);
+  } finally {
+    fake.server.close();
+  }
+});

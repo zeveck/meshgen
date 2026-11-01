@@ -444,7 +444,15 @@ function assetDir(opts, name) {
 function loadManifest(dir) {
   const file = path.join(dir, "meshgen.json");
   if (!fs.existsSync(file)) return null;
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+  const m = JSON.parse(fs.readFileSync(file, "utf8"));
+  // 2026.11.1 saved text models with no expiry (Meshy sends none for them),
+  // so they never looked expired: take it from the saved job.
+  for (const ref of [m.modelTask, m.originalModelTask, m.rig]) {
+    if (!ref || !ref.id || ref.expiresAt) continue;
+    const t = Object.values(m.tasks || {}).find((x) => x && x.id === ref.id && x.task);
+    if (t) ref.expiresAt = expiryOf(t.task);
+  }
+  return m;
 }
 
 // Two meshgen commands can work on one asset at once (say multicolor and
@@ -821,7 +829,11 @@ async function rigModel(ctx) {
     if (!fs.existsSync(modelFile)) throw new MeshgenError("source/model.glb is missing, so there's nothing to rig.");
     body.model_url = dataUri(modelFile, "model/gltf-binary");
   }
-  const rigStep = m.tasks.rig && (isExpired(m.tasks.rig) || isExpired(m.rig)) ? `rig-${Date.now()}` : "rig";
+  // Only the rig in use can be stale: a newer rig job still being made (a
+  // rerun after --wait ran out) is picked up, not paid for again.
+  const old = m.tasks.rig;
+  const stale = old && (isExpired(old) || (m.rig && old.id === m.rig.id && isExpired(m.rig)));
+  const rigStep = stale ? `rig-${Date.now()}` : "rig";
   if (rigStep !== "rig") {
     m.tasks[rigStep] = m.tasks.rig;
     delete m.tasks.rig;
