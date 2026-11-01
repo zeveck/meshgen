@@ -154,7 +154,7 @@ without paying twice.
 | `--topology <t>` | `triangle` (default) or `quad` |
 | `--pose <p>` | `a-pose`, `t-pose` or `none` |
 | `--pbr` | Metallic, roughness and normal maps |
-| `--texture <res>` | What Meshy paints: `2k`, `4k`, `8k` |
+| `--texture <res>` | What Meshy paints: `2k`, `4k`, `8k` (`--draft`: 2k only) |
 | `--max-texture <px>` | Shrink the GLB's PNG textures to fit (default 1024; 0 keeps them) |
 | `--formats <list>` | `glb` plus any of `fbx`, `obj`, `usdz`, `stl`, `3mf` (saved in `source/`) |
 | `--actions <list>` | Clips for `character` |

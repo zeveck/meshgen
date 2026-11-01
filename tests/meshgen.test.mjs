@@ -119,6 +119,8 @@ test('parseArgs rejects bad values with plain messages', () => {
   assert.throws(() => meshgen.parseArgs(['model', 'x', '--prompt']), /needs a value/);
   assert.throws(() => meshgen.parseArgs(['model', 'x', '--prompt', '--draft']), /needs a value/);
   assert.throws(() => meshgen.parseArgs(['model', 'x', ...Array(5).fill(['--image', 'a.png']).flat()]), /at most 4/);
+  // meshy-6-lite paints only 2k, from text too (Meshy would refuse the refine after charging the preview).
+  assert.throws(() => meshgen.parseArgs(['model', 'x', '--prompt', 'y', '--draft', '--texture', '4k']), /only come with 2k/);
 });
 
 test('credit estimates follow Meshy pricing', () => {
@@ -603,4 +605,65 @@ test('scaleToHeight is exact for tiny rigs and stands them on the ground', () =>
   const info = meshgen.inspectGlb(meshgen.scaleToHeight(tiny, 0.3));
   assert.equal(info.height, 0.3);
   assert.equal(info.min[1], 0);
+});
+
+test('an expired preview is made again before its textures', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    const args = ['model', 'chest', '--prompt', 'a wooden chest', '--no-history'];
+    await run(args, { cwd, base: fake.base });
+    // Four days later the refine's files had gone, so its step was cleared.
+    const file = path.join(cwd, 'assets/meshgen/chest/meshgen.json');
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete m.done;
+    delete m.tasks.refine;
+    m.tasks.preview.expiresAt = Date.now() - 864e5;
+    fs.writeFileSync(file, JSON.stringify(m));
+    fs.rmSync(path.join(cwd, 'assets/meshgen/chest/source/model.glb'));
+    const r = await run(args, { cwd, base: fake.base });
+    assert.equal(r.json.success, true, JSON.stringify(r.json));
+    assert.deepEqual(fake.state.posts.map((p) => p.json.mode), ['preview', 'refine', 'preview', 'refine']);
+    assert.equal(fake.state.posts[3].json.preview_task_id, 'task-3');
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a new rig keeps walk and run, and rebuild says how to change a rig\'s height', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,walk,run', '--no-history'], { cwd, base: fake.base });
+    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    m.rig.expiresAt = 1;
+    fs.writeFileSync(file, JSON.stringify(m));
+    const r = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    assert.deepEqual(r.json.clips.slice().sort(), ['cast', 'idle', 'run', 'walk']);
+    const rebuild = await run(['rebuild', 'hero', '--height', '2.2', '--no-history'], { cwd, base: fake.base });
+    assert.equal(rebuild.json.success, false);
+    assert.match(rebuild.json.error, /rig hero --height 2\.2/);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a rerun collects a paid job even when the balance is now low', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle', '--no-history'], { cwd, base: fake.base });
+    fake.state.balance = 9;
+    fake.state.slow = true;
+    const first = await run(['animate', 'hero', 'cast', '--wait', '1', '--no-history'], { cwd, base: fake.base });
+    assert.equal(first.json.pending, true, JSON.stringify(first.json));
+    assert.equal(fake.state.balance, 0);
+    fake.state.slow = false;
+    const again = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    assert.equal(again.json.success, true, JSON.stringify(again.json));
+    assert.ok(again.json.clips.includes('cast'));
+  } finally {
+    fake.server.close();
+  }
 });

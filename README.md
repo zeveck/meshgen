@@ -238,7 +238,7 @@ versus animating in code.
 | `--topology <t>` | `triangle` or `quad` |
 | `--pose <p>` | `a-pose`, `t-pose` or `none` |
 | `--pbr` | Metallic, roughness and normal maps |
-| `--texture <res>` | The texture size Meshy paints: `2k`, `4k` or `8k` |
+| `--texture <res>` | The texture size Meshy paints: `2k`, `4k` or `8k` (`--draft` paints 2k only) |
 | `--max-texture <px>` | Shrink PNG textures in the GLB to fit (default 1024; `0` keeps them) |
 | `--formats <list>` | Also save `fbx`, `obj`, `usdz`, `stl` or `3mf` |
 | `--actions <list>` | Animations for `character` |

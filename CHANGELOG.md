@@ -8,6 +8,7 @@
 - Two meshgen commands can now work on the same asset at once without losing each other's Meshy job records.
 - The skill adds up the cost of a whole request and asks once.
 - Fixes from a bug review (#1): a lost answer from Meshy can no longer attach another asset's model; a new rig remakes the clips made for the old one; a rerun keeps the height, clips and options you chose before; jobs Meshy has deleted are remade on the next run instead of getting stuck; two commands on one asset keep each other's clips; a busy Meshy respects `--wait`; tiny rigs are resized exactly.
+- Fixes from a second review (#2): a text model whose preview Meshy has deleted is remade instead of getting stuck; `--draft` refuses 4k and 8k textures from text before spending anything; a new rig keeps the walk and run clips; a rerun collects a job it already paid for even when the balance is low; `rebuild --height` on a rigged character explains how to change its height.
 - New demos: the Creature Showcase (a fish, dragon, frog and cat animated in code) and a gallery page at zeveck.github.io/meshgen.
 
 ## 2026.11.1

@@ -138,7 +138,7 @@ Options:
   --topology <t>        triangle (default) or quad
   --pose <p>            a-pose, t-pose or none (character defaults to a-pose)
   --pbr                 Add metallic, roughness and normal maps
-  --texture <res>       2k (default), 4k or 8k: what Meshy paints
+  --texture <res>       2k (default), 4k or 8k: what Meshy paints (--draft: 2k only)
   --max-texture <px>    Shrink the final GLB's textures to fit (default ${DEFAULT_MAX_TEXTURE}; 0 keeps them)
   --formats <list>      glb (default), fbx, obj, usdz, stl, 3mf
   --actions <list>      Actions for character (default ${DEFAULT_CHARACTER_ACTIONS.join(",")})
@@ -293,8 +293,8 @@ function validateOpts(opts) {
   if (opts.texture && !["2k", "4k", "8k"].includes(opts.texture)) {
     throw new MeshgenError("--texture must be 2k, 4k or 8k.");
   }
-  if (opts.draft && opts.texture && opts.texture !== "2k" && opts.images.length) {
-    throw new MeshgenError("--draft models from pictures only come with 2k textures.");
+  if (opts.draft && opts.texture && opts.texture !== "2k") {
+    throw new MeshgenError("--draft models only come with 2k textures.");
   }
   if (opts.printer && !["fdm", "sla", "full_color"].includes(opts.printer)) {
     throw new MeshgenError("--printer must be fdm, sla or full_color.");
@@ -741,6 +741,16 @@ function modelRequests(req) {
 
 async function makeModel(ctx) {
   const req = ctx.manifest.request;
+  // Textures are painted onto the preview job, which Meshy keeps 3 days. An
+  // expired one has to be made again, unless its textures are done or still
+  // being made.
+  const { preview, refine } = ctx.manifest.tasks;
+  const refineAlive = refine && (refine.status === "SUCCEEDED"
+    || (refine.id && !["FAILED", "CANCELED"].includes(refine.status) && Date.now() - refine.requestedAt < KEEP_MS));
+  if (preview && isExpired(preview) && !refineAlive) {
+    ctx.dropped.add("preview");
+    delete ctx.manifest.tasks.preview;
+  }
   let last = null;
   for (const r of modelRequests(req)) {
     if (r.body.preview_task_id === "$preview") r.body.preview_task_id = last.id;
@@ -820,11 +830,13 @@ async function rigModel(ctx) {
   }
   const task = await runTask(ctx, "rig", "rig", body, "rig");
   const r = task.result || {};
+  let freeClips = [];
   const src = path.join(ctx.dir, "source");
   if (!m.rig || m.rig.id !== task.id) {
     // A new skeleton: clips made for the old one don't fit it. Paid clips
     // are made again on the new rig (four-legged rigs can't use the library).
     for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
+    freeClips = m.clips.filter((c) => c.actionId === null || c.actionId === undefined).map((c) => c.name);
     const paid = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined);
     if (!m.request.quadruped) ctx.reanimate = paid.map((c) => `${c.name}=${c.actionId}`);
     else if (paid.length) log(`a four-legged rig can't use Meshy's animation library, so ${paid.map((c) => c.name).join(", ")} were dropped.`);
@@ -838,6 +850,8 @@ async function rigModel(ctx) {
   if ((m.request.formats || []).includes("fbx") && r.rigged_character_fbx_url) {
     await download(r.rigged_character_fbx_url, path.join(src, "rigged.fbx"));
   }
+  // walk and run come with the new rig too, when Meshy sent them.
+  ctx.reanimate.push(...freeClips.filter((n) => ACTIONS[n] && ACTIONS[n].free && hasFreeClip(ctx, ACTIONS[n].free)));
   m.rig = { id: task.id, expiresAt: expiryOf(task), height };
   saveManifest(ctx);
   return task;
@@ -1646,6 +1660,14 @@ function dryRun(command, opts, request, credits) {
   out({ success: true, dryRun: true, command, credits, steps });
 }
 
+// A rerun that collects a job Meshy has already charged for costs nothing,
+// so while one is unfinished the balance isn't checked (Meshy still refuses
+// a new job the account can't pay for).
+function balanceUnlessPending(manifest) {
+  const pending = Object.values(manifest.tasks || {}).some((t) => t && !["SUCCEEDED", "FAILED", "CANCELED"].includes(t.status));
+  return pending ? null : balance();
+}
+
 function checkBudget(opts, credits, before) {
   if (opts.maxCredits !== undefined && credits > opts.maxCredits) {
     throw new MeshgenError(`This would cost about ${credits} credits, over --max-credits ${opts.maxCredits}.`);
@@ -1749,6 +1771,9 @@ async function cmdRebuild(opts) {
   const ctx = newCtx(opts, claimed);
   const req = ctx.manifest.request;
   if (opts.maxTexture !== undefined) req.maxTexture = opts.maxTexture;
+  if (opts.height && ctx.manifest.rig && opts.height !== ctx.manifest.rig.height) {
+    throw new MeshgenError(`${ctx.name} has a skeleton, so its height comes from the rig. Rig it again at the new height: meshgen rig ${ctx.name} --height ${opts.height} (5 credits, plus 3 for each paid clip).`);
+  }
   if (opts.height && !ctx.manifest.rig) req.height = opts.height;
   if (opts.rootMotion) req.rootMotion = true;
   if (opts.noRootMotion) req.rootMotion = false;
@@ -1765,7 +1790,7 @@ async function cmdRemesh(opts) {
   const claimed = openAsset(opts, opts.positional[0]);
   const polycount = opts.polycount || (claimed.manifest.request.character ? CHARACTER_POLYCOUNT : PROP_POLYCOUNT);
   if (opts.dryRun) return out({ success: true, dryRun: true, command: "remesh", credits: 5, steps: [{ endpoint: `POST ${ENDPOINTS.remesh}`, body: { input_task_id: "$model", target_polycount: polycount } }] });
-  const before = await balance();
+  const before = await balanceUnlessPending(claimed.manifest);
   checkBudget(opts, 5, before);
   const ctx = newCtx(opts, claimed);
   await remeshModel(ctx, polycount);
@@ -1783,7 +1808,7 @@ async function cmdRig(opts) {
   const paid = claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`);
   const credits = 5 + ((opts.quadruped || claimed.manifest.request.quadruped) ? 0 : paid.length * 3);
   if (opts.dryRun) return dryRun("rig", opts, null, credits);
-  const before = await balance();
+  const before = await balanceUnlessPending(claimed.manifest);
   checkBudget(opts, credits, before);
   const ctx = newCtx(opts, claimed);
   if (opts.height) ctx.manifest.request.height = opts.height;
@@ -1805,7 +1830,7 @@ async function cmdAnimate(opts) {
   const redo = reRig ? claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined && !specs.some((s) => slugClip(s.split("=")[0]) === c.name)).length : 0;
   const credits = actionCredits(specs) + (rigged && !reRig ? 0 : 5) + redo * 3;
   if (opts.dryRun) return dryRun("animate", opts, null, credits);
-  const before = await balance();
+  const before = await balanceUnlessPending(claimed.manifest);
   checkBudget(opts, credits, before);
   const ctx = newCtx(opts, claimed);
   if (opts.rootMotion) ctx.manifest.request.rootMotion = true;
@@ -1913,7 +1938,7 @@ async function cmdPrintStep(opts, kind) {
   if (opts.dryRun) {
     return out({ success: true, dryRun: true, command: kind, credits: 10, steps: [{ endpoint: `POST ${ENDPOINTS[kind]}`, body: { ...body, model_url: body.model_url && "data:..." } }] });
   }
-  const before = await balance();
+  const before = await balanceUnlessPending(claimed.manifest);
   checkBudget(opts, 10, before);
   const ctx = newCtx(opts, claimed);
   const step = `${kind}-${sha1(body).slice(0, 8)}`;
