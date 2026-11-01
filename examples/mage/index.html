@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mage Playground</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2230; color: #f3efe6; font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; }
+  #hud { position: fixed; left: 12px; top: 12px; padding: 10px 14px; background: rgba(15, 18, 28, .72); border-radius: 10px; max-width: 300px; }
+  #hud h1 { margin: 0 0 6px; font-size: 17px; letter-spacing: .02em; }
+  #hud ul { margin: 0; padding-left: 0; list-style: none; }
+  #hud li { margin: 2px 0; }
+  kbd { display: inline-block; min-width: 1.4em; padding: 0 5px; border: 1px solid #8a8fa3; border-radius: 4px; background: #2c3245; font: 12px/1.5 ui-monospace, monospace; text-align: center; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; background: #1d2230; }
+  #score { position: fixed; right: 12px; top: 12px; padding: 8px 12px; background: rgba(15, 18, 28, .72); border-radius: 10px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+</script>
+</head>
+<body>
+<div id="loading">Summoning the mage…</div>
+<div id="hud" hidden>
+  <h1>Mage Playground</h1>
+  <ul>
+    <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</li>
+    <li><kbd>Space</kbd> jump · <kbd>Q</kbd> dodge roll</li>
+    <li><kbd>J</kbd> or click: flaming sword</li>
+    <li><kbd>K</kbd> or right-click: fireball</li>
+    <li><kbd>L</kbd> arcane nova</li>
+    <li><kbd>E</kbd> wave · <kbd>H</kbd> take a hit · <kbd>X</kbd> collapse</li>
+    <li>Drag to turn the camera</li>
+  </ul>
+</div>
+<div id="score" hidden>Dummies toppled: <b id="count">0</b></div>
+<script type="module" src="./game.js"></script>
+</body>
+</html>

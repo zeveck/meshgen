@@ -1,0 +1,6 @@
+.env
+node_modules/
+.meshgen-history.jsonl
+.playwright/
+.playwright-cli/
+examples/*/logs/

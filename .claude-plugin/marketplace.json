@@ -1,0 +1,14 @@
+{
+  "name": "meshgen",
+  "owner": {
+    "name": "zeveck"
+  },
+  "description": "meshgen: 3D game assets with Meshy.",
+  "plugins": [
+    {
+      "name": "meshgen",
+      "source": "./skills",
+      "description": "Make 3D game models, rigged characters and animations with Meshy."
+    }
+  ]
+}

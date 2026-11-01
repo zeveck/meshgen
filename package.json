@@ -1,0 +1,13 @@
+{
+  "name": "meshgen",
+  "version": "2026.11.1",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code skill and zero-dependency CLI for 3D game assets with Meshy: models, rigs, animations and previews",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}
