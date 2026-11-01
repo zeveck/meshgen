@@ -180,7 +180,7 @@ original downloads in `source/`. Every command prints one JSON line.
 |---|---|---|
 | `model <name>` | `POST /openapi/v2/text-to-3d` or `/v1/image-to-3d` | 30 (15 with `--draft`) |
 | `character <name>` | model, then `POST /v1/rigging`, then `POST /v1/animations` | about 50 with 7 clips |
-| `rig <name>` | `POST /v1/rigging`: a skeleton, plus free walk and run clips | 5 |
+| `rig <name>` | `POST /v1/rigging`: a skeleton, plus free walk and run clips; remakes any paid clips on it | 5, plus 3 per paid clip |
 | `animate <name> <actions...>` | `POST /v1/animations`, up to 10 clips a call | 3 each |
 | `remesh <name>` | `POST /v1/remesh` | 5 |
 | `model <name> --print` | as `model`, at full detail with STL and 3MF | 30 |
@@ -270,7 +270,9 @@ versus animating in code.
 - **Your generated models**: on a paid Meshy plan you own the output and
   can use it commercially (Meshy's plan terms; the API needs a paid plan).
 - **Meshy keeps API results for 3 days.** meshgen downloads everything at
-  once, so the files in `source/` are the lasting copies.
+  once, so the files in `source/` are the lasting copies. To add clips to a
+  character whose rig has expired, run `rig <name>` first: it rigs again and
+  remakes the paid clips.
 - **three.js** is vendored under its MIT license
   ([`skills/meshgen/viewer/vendor/LICENSE`](skills/meshgen/viewer/vendor/LICENSE)).
 

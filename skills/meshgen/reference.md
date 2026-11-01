@@ -160,7 +160,7 @@ in the meshgen repo does a betta fish, a dragon, a frog and a cat this way.
 | `"pending": true` | Run the same command again; no extra cost |
 | couldn't find a humanoid pose | The picture needs a clear two-legged A-pose with arms away from the body; make a new picture |
 | not enough credits | `balance`; the user may need to top up at meshy.ai |
-| its files may have expired, or no longer has the job | Meshy keeps jobs 3 days. `animate` re-rigs from `source/` by itself; otherwise run the command again to redo that step |
+| its files may have expired, or no longer has the job | Meshy keeps jobs 3 days. For an expired rig, run `rig <name>` (it rigs again and remakes the paid clips), then `animate` again; otherwise run the command again to redo that step |
 | warnings about height or ground | Check the preview; use `--height` or `rebuild` |
 
 Meshy's API docs: https://docs.meshy.ai (rate limits, prices and job times

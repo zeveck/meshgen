@@ -135,7 +135,7 @@ without paying twice.
 | `model <name>` | Textured model from `--prompt` or `--image` |
 | `character <name>` | Model in A-pose, rig, `--actions`, preview |
 | `remesh <name>` | New triangle count (`--polycount`) |
-| `rig <name>` | Skeleton plus the free walk and run; a new rig redoes paid clips (3 each) |
+| `rig <name>` | Skeleton plus the free walk and run; remakes the paid clips on it (3 each) |
 | `animate <name> <actions...>` | More clips |
 | `rebuild <name>` | Remake the final GLB from saved files (free) |
 | `inspect <name or file.glb>` | Height, triangles, bones, clips, textures |
@@ -182,7 +182,9 @@ assets/meshgen/hero/
 
 meshgen never overwrites an asset: a new `model` with a taken name becomes
 `hero-v2`. Meshy deletes its copies after 3 days, so `source/` is the only
-lasting copy; keep it while the asset is in progress.
+lasting copy; keep it while the asset is in progress. Once a rig has expired,
+`animate` stops and says to run `rig <name>`, which rigs again and remakes the
+paid clips.
 
 Read `${CLAUDE_SKILL_DIR}/reference.md` for loading the GLB in three.js or
 Godot, attaching held items, deciding between Meshy clips and code-driven

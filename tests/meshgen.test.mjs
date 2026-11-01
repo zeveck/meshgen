@@ -543,33 +543,6 @@ test('rerunning with fewer flags keeps the saved height, clips and root motion',
   }
 });
 
-test('an expired rig is redone with every paid clip, and concurrent animates keep both clips', async () => {
-  const fake = await fakeMeshy();
-  const cwd = tempProject();
-  try {
-    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash'], { cwd, base: fake.base });
-    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
-    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-    m.rig.expiresAt = 1;
-    fs.writeFileSync(file, JSON.stringify(m));
-    const dry = await run(['animate', 'hero', 'cast', '--dry-run'], { cwd, base: fake.base });
-    assert.equal(dry.json.credits, 3 + 5 + 6);
-    const r = await run(['animate', 'hero', 'cast'], { cwd, base: fake.base });
-    assert.equal(r.json.success, true, JSON.stringify(r.json));
-    const anims = fake.state.posts.filter((p) => p.kind === 'animations');
-    assert.deepEqual(anims[1].json.action_ids, [125, 0, 97]);
-    const [a, b] = await Promise.all([
-      run(['animate', 'hero', 'wave'], { cwd, base: fake.base }),
-      run(['animate', 'hero', 'dance'], { cwd, base: fake.base }),
-    ]);
-    assert.equal(a.json.success && b.json.success, true);
-    const clips = JSON.parse(fs.readFileSync(file, 'utf8')).clips.map((c) => c.name);
-    assert.ok(clips.includes('wave') && clips.includes('dance'), clips.join(','));
-  } finally {
-    fake.server.close();
-  }
-});
-
 test('expired download links clear the step, so the next run remakes it', async () => {
   const fake = await fakeMeshy({ slow: true });
   const cwd = tempProject();
@@ -630,25 +603,6 @@ test('an expired preview is made again before its textures', async () => {
   }
 });
 
-test('a new rig keeps walk and run, and rebuild says how to change a rig\'s height', async () => {
-  const fake = await fakeMeshy();
-  const cwd = tempProject();
-  try {
-    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,walk,run', '--no-history'], { cwd, base: fake.base });
-    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
-    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-    m.rig.expiresAt = 1;
-    fs.writeFileSync(file, JSON.stringify(m));
-    const r = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
-    assert.deepEqual(r.json.clips.slice().sort(), ['cast', 'idle', 'run', 'walk']);
-    const rebuild = await run(['rebuild', 'hero', '--height', '2.2', '--no-history'], { cwd, base: fake.base });
-    assert.equal(rebuild.json.success, false);
-    assert.match(rebuild.json.error, /rig hero --height 2\.2/);
-  } finally {
-    fake.server.close();
-  }
-});
-
 test('a rerun collects a paid job even when the balance is now low', async () => {
   const fake = await fakeMeshy();
   const cwd = tempProject();
@@ -668,7 +622,7 @@ test('a rerun collects a paid job even when the balance is now low', async () =>
   }
 });
 
-test('clips remade on a new rig keep their loop flag, and a pending remake resumes', async () => {
+test('a rerun after rig times out on its clips picks up the pending job', async () => {
   const fake = await fakeMeshy();
   const cwd = tempProject();
   try {
@@ -680,7 +634,7 @@ test('clips remade on a new rig keep their loop flag, and a pending remake resum
     const again = await run(['rig', 'hero', '--height', '2', '--no-history'], { cwd, base: fake.base });
     assert.equal(again.json.success, true, JSON.stringify(again.json));
     assert.deepEqual(again.json.clips.slice().sort(), ['idle', 'run', 'slash', 'walk']);
-    assert.equal(fake.state.posts.filter((p) => p.kind === 'animations').length, 2);
+    assert.deepEqual(fake.state.posts.map((p) => p.kind), ['image-to-3d', 'rigging', 'animations', 'rigging', 'animations']);
     const loops = Object.fromEntries((await run(['inspect', 'hero'], { cwd, base: fake.base })).json.clips.map((c) => [c.name, c.loop]));
     assert.deepEqual(loops, { idle: true, slash: false, walk: true, run: true });
   } finally {
@@ -688,25 +642,117 @@ test('clips remade on a new rig keep their loop flag, and a pending remake resum
   }
 });
 
-test('a new rig for an expired one that times out is picked up, not paid for again', async () => {
+// Expires the saved rig, as if three days had passed.
+function expireRig(cwd) {
+  const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
+  const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  m.rig.expiresAt = m.tasks.rig.expiresAt = 1;
+  fs.writeFileSync(file, JSON.stringify(m));
+}
+
+test('two animates on one asset at once keep both clips', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle', '--no-history'], { cwd, base: fake.base });
+    const [a, b] = await Promise.all([
+      run(['animate', 'hero', 'wave', '--no-history'], { cwd, base: fake.base }),
+      run(['animate', 'hero', 'dance', '--no-history'], { cwd, base: fake.base }),
+    ]);
+    assert.equal(a.json.success && b.json.success, true);
+    const clips = JSON.parse(fs.readFileSync(path.join(cwd, 'assets/meshgen/hero/meshgen.json'), 'utf8')).clips.map((c) => c.name);
+    assert.ok(clips.includes('wave') && clips.includes('dance'), clips.join(','));
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('rebuild says how to change a rig\'s height', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle', '--no-history'], { cwd, base: fake.base });
+    const rebuild = await run(['rebuild', 'hero', '--height', '2.2', '--no-history'], { cwd, base: fake.base });
+    assert.equal(rebuild.json.success, false);
+    assert.match(rebuild.json.error, /rig hero --height 2\.2/);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('animate on an expired rig stops before spending and says to run rig', async () => {
   const fake = await fakeMeshy();
   const cwd = tempProject();
   try {
     await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash', '--no-history'], { cwd, base: fake.base });
-    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
-    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-    m.rig.expiresAt = m.tasks.rig.expiresAt = m.modelTask.expiresAt = 1;
-    fs.writeFileSync(file, JSON.stringify(m));
+    expireRig(cwd);
+    const posts = fake.state.posts.length;
+    const r = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    assert.equal(r.json.success, false);
+    assert.match(r.json.error, /Meshy has deleted this character's rig.*meshgen rig hero.*about 11 credits/);
+    fs.rmSync(path.join(cwd, 'assets/meshgen/hero/source/walk.glb'));
+    const walk = await run(['animate', 'hero', 'walk', '--no-history'], { cwd, base: fake.base });
+    assert.match(walk.json.error, /meshgen rig hero/);
+    assert.equal(fake.state.posts.length, posts);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('rig on an expired rig remakes every paid clip, with loop flags, in one job', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash', '--no-history'], { cwd, base: fake.base });
+    await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    expireRig(cwd);
+    const dry = await run(['rig', 'hero', '--dry-run'], { cwd, base: fake.base });
+    assert.equal(dry.json.credits, 5 + 9);
+    const posts = fake.state.posts.length;
+    const r = await run(['rig', 'hero', '--no-history'], { cwd, base: fake.base });
+    assert.equal(r.json.success, true, JSON.stringify(r.json));
+    const kinds = fake.state.posts.slice(posts).map((p) => p.kind);
+    assert.deepEqual(kinds, ['rigging', 'animations']);
+    const anim = fake.state.posts.at(-1).json;
+    assert.equal(anim.rig_task_id, `task-${posts + 1}`);
+    assert.deepEqual(anim.action_ids, [0, 97, 125]);
+    const loops = Object.fromEntries((await run(['inspect', 'hero'], { cwd, base: fake.base })).json.clips.map((c) => [c.name, c.loop]));
+    assert.deepEqual(loops, { idle: true, slash: false, cast: false, walk: true, run: true });
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('rig --quadruped drops the paid clips it can\'t remake', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash,walk', '--no-history'], { cwd, base: fake.base });
+    const r = await run(['rig', 'hero', '--quadruped', '--no-history'], { cwd, base: fake.base });
+    assert.equal(r.json.success, true, JSON.stringify(r.json));
+    assert.deepEqual(r.json.clips.slice().sort(), ['run', 'walk']);
+    assert.equal(fake.state.posts.filter((p) => p.kind === 'animations').length, 1);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a rig that times out on an expired rig is picked up, not paid for again', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash', '--no-history'], { cwd, base: fake.base });
+    expireRig(cwd);
     fake.state.slow = 'rigging';
     for (let i = 0; i < 2; i++) {
-      const r = await run(['animate', 'hero', 'cast', '--wait', '1', '--no-history'], { cwd, base: fake.base });
+      const r = await run(['rig', 'hero', '--wait', '1', '--no-history'], { cwd, base: fake.base });
       assert.equal(r.json.pending, true, JSON.stringify(r.json));
     }
     fake.state.slow = false;
-    const again = await run(['animate', 'hero', 'cast', '--no-history'], { cwd, base: fake.base });
+    const again = await run(['rig', 'hero', '--no-history'], { cwd, base: fake.base });
     assert.equal(again.json.success, true, JSON.stringify(again.json));
-    assert.deepEqual(again.json.clips.slice().sort(), ['cast', 'idle', 'slash']);
-    assert.equal(fake.state.posts.filter((p) => p.kind === 'rigging').length, 2);
+    assert.deepEqual(again.json.clips.slice().sort(), ['idle', 'run', 'slash', 'walk']);
+    assert.deepEqual(fake.state.posts.map((p) => p.kind), ['image-to-3d', 'rigging', 'animations', 'rigging', 'animations']);
   } finally {
     fake.server.close();
   }

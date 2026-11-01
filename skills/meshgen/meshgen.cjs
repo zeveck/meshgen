@@ -829,37 +829,18 @@ async function rigModel(ctx) {
     if (!fs.existsSync(modelFile)) throw new MeshgenError("source/model.glb is missing, so there's nothing to rig.");
     body.model_url = dataUri(modelFile, "model/gltf-binary");
   }
-  // Only the rig in use can be stale: a newer rig job still being made (a
-  // rerun after --wait ran out) is picked up, not paid for again.
-  const old = m.tasks.rig;
-  const stale = old && (isExpired(old) || (m.rig && old.id === m.rig.id && isExpired(m.rig)));
-  const rigStep = stale ? `rig-${Date.now()}` : "rig";
-  if (rigStep !== "rig") {
-    m.tasks[rigStep] = m.tasks.rig;
+  // An expired rig is set aside so a new one is made. A newer rig still
+  // being made (a rerun after --wait ran out) has no expiry yet: picked up.
+  if (isExpired(m.tasks.rig)) {
+    m.tasks[`rig-${Date.now()}`] = m.tasks.rig;
     delete m.tasks.rig;
-    log("the old rig has expired at Meshy (it keeps files 3 days), so rigging again.");
+    log("the old rig has expired at Meshy (it keeps jobs 3 days), so rigging again.");
   }
   const task = await runTask(ctx, "rig", "rig", body, "rig");
   const r = task.result || {};
-  let freeClips = [];
   const src = path.join(ctx.dir, "source");
-  if (!m.rig || m.rig.id !== task.id) {
-    // A new skeleton: clips made for the old one don't fit it. Paid clips
-    // are made again on the new rig (four-legged rigs can't use the library).
-    for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
-    // m.reanimate lists clips to make on the new rig. It stays in the
-    // manifest until they are made, so a rerun after a timeout picks up the
-    // same job instead of forgetting them.
-    const carried = m.reanimate || [];
-    freeClips = m.clips.filter((c) => c.actionId === null || c.actionId === undefined).map((c) => c.name)
-      .concat(carried.filter((s) => !s.includes("=")));
-    const paid = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`)
-      .concat(carried.filter((s) => s.includes("=")));
-    m.reanimate = m.request.quadruped ? [] : paid;
-    if (m.request.quadruped && paid.length) log(`a four-legged rig can't use Meshy's animation library, so ${paid.map((s) => s.split("=")[0]).join(", ")} were dropped.`);
-    for (const c of m.clips) ctx.droppedClips.add(c.name);
-    m.clips = [];
-  }
+  // A new rig's walk and run replace the old ones (if it sends them).
+  if (!m.rig || m.rig.id !== task.id) for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
   await download(r.rigged_character_glb_url, path.join(src, "rigged.glb"), { ctx, step: "rig" });
   const basic = r.basic_animations || {};
   if (basic.walking_glb_url) await download(basic.walking_glb_url, path.join(src, "walk.glb"));
@@ -867,8 +848,6 @@ async function rigModel(ctx) {
   if ((m.request.formats || []).includes("fbx") && r.rigged_character_fbx_url) {
     await download(r.rigged_character_fbx_url, path.join(src, "rigged.fbx"));
   }
-  // walk and run come with the new rig too, when Meshy sent them.
-  m.reanimate = (m.reanimate || []).concat(freeClips.filter((n) => ACTIONS[n] && ACTIONS[n].free && hasFreeClip(ctx, ACTIONS[n].free)));
   m.rig = { id: task.id, expiresAt: expiryOf(task), height };
   saveManifest(ctx);
   return task;
@@ -910,14 +889,13 @@ function needsLibrary(specs) {
 
 async function animateModel(ctx, specs) {
   const m = ctx.manifest;
-  const wantsPaid = specs.some((s) => { const a = ACTIONS[slugClip(s.split("=")[0])]; return s.includes("=") || !(a && a.free); });
-  if (wantsPaid && m.rig && isExpired(m.rig)) await rigModel(ctx);
-  // Clips the old rig had, made again for a new one (unless asked for now).
-  const names = new Set(specs.map((s) => slugClip(s.split("=")[0])));
-  specs = specs.concat((m.reanimate || []).filter((s) => !names.has(s.split("=")[0])));
   const library = needsLibrary(specs) ? await api("GET", "/openapi/v1/animations/library") : null;
   const wanted = specs.map((s) => resolveAction(s, library));
   const paid = wanted.filter((a) => !a.free || !hasFreeClip(ctx, a.free));
+  if (paid.length && isExpired(m.rig)) {
+    const credits = 5 + (m.request.quadruped ? 0 : paidSpecs(m).length * 3);
+    throw new MeshgenError(`Meshy has deleted this character's rig (it keeps jobs 3 days). Run \`meshgen rig ${ctx.name}\` to rig it again and remake its clips (about ${credits} credits), then run this command again.`);
+  }
   for (let i = 0; i < paid.length; i += 10) {
     const batch = paid.slice(i, i + 10);
     const ids = [...new Set(batch.map((a) => a.id))];
@@ -936,12 +914,16 @@ async function animateModel(ctx, specs) {
       setClip(m, { name: a.clip, source: `source/${a.free}.glb`, index: 0, actionId: null, loop: true });
     }
   }
-  delete m.reanimate;
   saveManifest(ctx);
 }
 
 function hasFreeClip(ctx, which) {
   return fs.existsSync(path.join(ctx.dir, "source", `${which}.glb`));
+}
+
+// The paid clips as specs ("slash=97") that make them again on a new rig.
+function paidSpecs(m) {
+  return m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`);
 }
 
 function setClip(m, clip) {
@@ -1823,19 +1805,30 @@ async function cmdRemesh(opts) {
 }
 
 // A new rig makes old clips wrong (they were made for the old skeleton), so
-// the paid ones are made again on the new rig and counted in the estimate.
+// rig makes the paid ones again on it, with walk and run, in one step. The
+// old clips stay until the new ones replace them, so a rerun after a timeout
+// asks for the same clips and picks up the pending job.
 async function cmdRig(opts) {
   const claimed = openAsset(opts, opts.positional[0]);
-  const paid = claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`);
-  const credits = 5 + ((opts.quadruped || claimed.manifest.request.quadruped) ? 0 : paid.length * 3);
+  const m = claimed.manifest;
+  const quadruped = !!(opts.quadruped || m.request.quadruped);
+  const paid = quadruped ? [] : paidSpecs(m);
+  const credits = 5 + paid.length * 3;
   if (opts.dryRun) return dryRun("rig", opts, null, credits);
-  const before = await balanceUnlessPending(claimed.manifest);
+  const before = await balanceUnlessPending(m);
   checkBudget(opts, credits, before);
   const ctx = newCtx(opts, claimed);
-  if (opts.height) ctx.manifest.request.height = opts.height;
-  if (opts.quadruped) ctx.manifest.request.quadruped = true;
+  if (opts.height) m.request.height = opts.height;
+  if (opts.quadruped) m.request.quadruped = true;
   await rigModel(ctx);
-  await animateModel(ctx, ["walk", "run"].filter((w) => hasFreeClip(ctx, w)));
+  const specs = ["walk", "run"].filter((w) => hasFreeClip(ctx, w) && !paid.some((s) => s.startsWith(`${w}=`))).concat(paid);
+  await animateModel(ctx, specs);
+  // Clips that weren't made again don't fit the new rig.
+  const kept = new Set(specs.map((s) => s.split("=")[0]));
+  const gone = m.clips.filter((c) => !kept.has(c.name));
+  if (gone.length) log(`${gone.map((c) => c.name).join(", ")} can't be made on this rig${quadruped ? " (four-legged rigs can't use Meshy's animation library)" : ""}, so they were dropped.`);
+  for (const c of gone) ctx.droppedClips.add(c.name);
+  m.clips = m.clips.filter((c) => kept.has(c.name));
   buildFinal(ctx);
   const result = await finish(ctx, "rig", before);
   Object.assign(result, await tryPreview(ctx));
@@ -1847,9 +1840,7 @@ async function cmdAnimate(opts) {
   if (!specs.length) throw new MeshgenError("Say which actions to add, like: meshgen animate hero idle slash cast");
   const claimed = openAsset(opts, opts.positional[0]);
   const rigged = !!claimed.manifest.rig;
-  const reRig = rigged && isExpired(claimed.manifest.rig);
-  const redo = reRig ? claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined && !specs.some((s) => slugClip(s.split("=")[0]) === c.name)).length : 0;
-  const credits = actionCredits(specs) + (rigged && !reRig ? 0 : 5) + redo * 3;
+  const credits = actionCredits(specs) + (rigged ? 0 : 5);
   if (opts.dryRun) return dryRun("animate", opts, null, credits);
   const before = await balanceUnlessPending(claimed.manifest);
   checkBudget(opts, credits, before);
