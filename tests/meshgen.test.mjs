@@ -190,8 +190,8 @@ test('scaleToHeight scales the scene and stands it on the ground', () => {
 
 // --- End to end against a fake Meshy ------------------------------------------
 
-function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75 } = {}) {
-  const state = { balance: 1000, posts: [], tasks: new Map(), polls: 0, slow };
+function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75, onPost = null } = {}) {
+  const state = { balance: 1000, posts: [], tasks: new Map(), polls: 0, slow, filesGone: false };
   const files = {
     '/files/model.glb': makeGlb({ height: 1.6 }),
     '/files/rigged.glb': makeGlb({ height: rigHeight }),
@@ -210,7 +210,7 @@ function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75 } = {}) {
         res.writeHead(status, { 'Content-Type': 'application/json', 'Retry-After': '0', ...headers });
         res.end(JSON.stringify(json));
       };
-      if (files[req.url]) { res.writeHead(200); res.end(files[req.url]); return; }
+      if (files[req.url]) { res.writeHead(state.filesGone ? 403 : 200); res.end(state.filesGone ? '' : files[req.url]); return; }
       if (req.headers.authorization !== 'Bearer msy_test') return send(401, { message: 'Invalid API key' });
       if (req.url === '/openapi/v1/balance') return send(200, { balance: state.balance });
       if (req.url.startsWith('/openapi/v1/animations/library')) {
@@ -221,6 +221,8 @@ function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75 } = {}) {
       const [, kind, id] = m;
       if (req.method === 'POST') {
         const json = JSON.parse(body);
+        const forced = onPost && onPost(kind, json, state);
+        if (forced) return send(forced.status, forced.json, forced.headers || {});
         state.posts.push({ kind, json });
         if (state.balance < cost[kind]) return send(402, { message: 'Insufficient credits' });
         state.balance -= cost[kind];
@@ -504,4 +506,101 @@ test('a quadruped rig far off its height is rescaled; a close one is left alone'
       fake.server.close();
     }
   }
+});
+
+// Regressions from the Opus review: each reproduced a real failure before the fix.
+
+test('a lost create answer never adopts another asset\'s job', async () => {
+  let failNext = false;
+  const fake = await fakeMeshy({ onPost: (kind) => (failNext && kind === 'image-to-3d' ? (failNext = false, { status: 502, json: { message: 'Bad gateway' } }) : null) });
+  const cwd = tempProject();
+  try {
+    assert.equal((await run(['model', 'rock', '--image', 'hero.png'], { cwd, base: fake.base })).json.success, true);
+    failNext = true;
+    const tree = await run(['model', 'tree', '--image', 'hero.png', '--height', '3'], { cwd, base: fake.base });
+    assert.equal(tree.json.success, false);
+    assert.match(tree.json.error, /502/);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('rerunning with fewer flags keeps the saved height, clips and root motion', async () => {
+  const fake = await fakeMeshy({ slow: true });
+  const cwd = tempProject();
+  try {
+    const first = await run(['character', 'ogre', '--image', 'hero.png', '--height', '2.4', '--actions', 'slash', '--root-motion', '--wait', '1'], { cwd, base: fake.base });
+    assert.equal(first.json.pending, true);
+    fake.state.slow = false;
+    const second = await run(['character', 'ogre', '--image', 'hero.png'], { cwd, base: fake.base });
+    assert.equal(second.json.success, true, JSON.stringify(second.json));
+    assert.equal(fake.state.posts.find((p) => p.kind === 'rigging').json.height_meters, 2.4);
+    assert.deepEqual(fake.state.posts.find((p) => p.kind === 'animations').json.action_ids, [97]);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('an expired rig is redone with every paid clip, and concurrent animates keep both clips', async () => {
+  const fake = await fakeMeshy();
+  const cwd = tempProject();
+  try {
+    await run(['character', 'hero', '--image', 'hero.png', '--actions', 'idle,slash'], { cwd, base: fake.base });
+    const file = path.join(cwd, 'assets/meshgen/hero/meshgen.json');
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    m.rig.expiresAt = 1;
+    fs.writeFileSync(file, JSON.stringify(m));
+    const dry = await run(['animate', 'hero', 'cast', '--dry-run'], { cwd, base: fake.base });
+    assert.equal(dry.json.credits, 3 + 5 + 6);
+    const r = await run(['animate', 'hero', 'cast'], { cwd, base: fake.base });
+    assert.equal(r.json.success, true, JSON.stringify(r.json));
+    const anims = fake.state.posts.filter((p) => p.kind === 'animations');
+    assert.deepEqual(anims[1].json.action_ids, [125, 0, 97]);
+    const [a, b] = await Promise.all([
+      run(['animate', 'hero', 'wave'], { cwd, base: fake.base }),
+      run(['animate', 'hero', 'dance'], { cwd, base: fake.base }),
+    ]);
+    assert.equal(a.json.success && b.json.success, true);
+    const clips = JSON.parse(fs.readFileSync(file, 'utf8')).clips.map((c) => c.name);
+    assert.ok(clips.includes('wave') && clips.includes('dance'), clips.join(','));
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('expired download links clear the step, so the next run remakes it', async () => {
+  const fake = await fakeMeshy({ slow: true });
+  const cwd = tempProject();
+  try {
+    await run(['model', 'rock', '--image', 'hero.png', '--wait', '1'], { cwd, base: fake.base });
+    fake.state.slow = false;
+    fake.state.filesGone = true;
+    const stuck = await run(['model', 'rock', '--image', 'hero.png'], { cwd, base: fake.base });
+    assert.match(stuck.json.error, /no longer has the files.*Run the same command again/);
+    fake.state.filesGone = false;
+    const again = await run(['model', 'rock', '--image', 'hero.png'], { cwd, base: fake.base });
+    assert.equal(again.json.success, true, JSON.stringify(again.json));
+    assert.equal(fake.state.posts.length, 2);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a busy Meshy respects --wait', async () => {
+  const fake = await fakeMeshy({ onPost: () => ({ status: 429, json: { message: 'NoMorePendingTasks: too many tasks' } }) });
+  try {
+    const started = Date.now();
+    const r = await run(['model', 'rock', '--image', 'hero.png', '--wait', '2'], { cwd: tempProject(), base: fake.base });
+    assert.equal(r.json.success, false);
+    assert.ok(Date.now() - started < 10000);
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('scaleToHeight is exact for tiny rigs and stands them on the ground', () => {
+  const tiny = makeGlb({ height: 0.0037 });
+  const info = meshgen.inspectGlb(meshgen.scaleToHeight(tiny, 0.3));
+  assert.equal(info.height, 0.3);
+  assert.equal(info.min[1], 0);
 });

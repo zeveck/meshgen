@@ -391,16 +391,27 @@ async function balance() {
   return api("GET", "/openapi/v1/balance");
 }
 
-async function download(url, file) {
+// With { ctx, step }, a link Meshy has expired (403/404/410) drops that step,
+// so running the command again makes it afresh instead of failing forever.
+async function download(url, file, job) {
   for (let tries = 1; ; tries++) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(300000) });
+      if ([403, 404, 410].includes(res.status) && job) {
+        job.ctx.dropped.add(job.step);
+        delete job.ctx.manifest.tasks[job.step];
+        saveManifest(job.ctx);
+        throw new MeshgenError(
+          `Meshy no longer has the files for ${path.basename(file)} (it keeps jobs 3 days). Run the same command again to make them again; that step costs credits again.`
+        );
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, buf);
       return buf.length;
     } catch (err) {
+      if (err instanceof MeshgenError) throw err;
       if (tries >= 3) throw new MeshgenError(`Couldn't download ${path.basename(file)} from Meshy: ${err.message}`);
       await sleep(2000 * tries);
     }
@@ -467,6 +478,9 @@ function saveManifestNow(ctx) {
       if (!(step in m.tasks) && !ctx.dropped.has(step)) m.tasks[step] = task;
     }
     m.print = { ...(disk.print || {}), ...(m.print || {}) };
+    for (const clip of disk.clips || []) {
+      if (!m.clips.some((c) => c.name === clip.name) && !ctx.droppedClips.has(clip.name)) m.clips.push(clip);
+    }
   }
   m.updatedAt = new Date().toISOString();
   writeJson(path.join(ctx.dir, "meshgen.json"), m);
@@ -511,18 +525,50 @@ function openAsset(opts, name) {
 // Tasks: create once, resume after a crash or timeout, poll until done
 // ---------------------------------------------------------------------------
 
-function isExpired(task, marginMs = 10 * 60 * 1000) {
-  return task && task.expiresAt && task.expiresAt < Date.now() + marginMs;
+// Meshy keeps jobs 3 days. Text-to-3D jobs come back without expires_at, so
+// the 3 days count from when the job finished.
+const KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+function expiryOf(task) {
+  if (!task) return null;
+  if (task.expires_at) return task.expires_at;
+  const base = task.finished_at || task.created_at;
+  return base ? base + KEEP_MS : Date.now() + KEEP_MS;
+}
+
+function isExpired(t, marginMs = 10 * 60 * 1000) {
+  if (!t) return false;
+  const at = t.expiresAt || (t.task ? expiryOf(t.task) : null);
+  return !!at && at < Date.now() + marginMs;
 }
 
 // After a create call whose answer got lost, finds the job it made: the one
 // recent job of that kind (matching the prompt when there is one). Gives up
 // when unsure, since adopting another asset's job would be worse.
-async function recoverTask(endpoint, since, body) {
+// Job ids every asset next to this one has recorded.
+function knownTaskIds(ctx) {
+  const ids = new Set();
+  const parent = path.dirname(ctx.dir);
+  let names = [];
+  try { names = fs.readdirSync(parent); } catch {}
+  for (const name of names) {
+    const m = loadManifestQuiet(path.join(parent, name));
+    if (!m) continue;
+    for (const t of Object.values(m.tasks || {})) if (t && t.id) ids.add(t.id);
+    for (const t of [m.modelTask, m.originalModelTask, m.rig]) if (t && t.id) ids.add(t.id);
+  }
+  return ids;
+}
+
+function loadManifestQuiet(dir) {
+  try { return loadManifest(dir); } catch { return null; }
+}
+
+async function recoverTask(ctx, endpoint, since, body) {
   try {
     const list = await api("GET", `${endpoint}?page_num=1&page_size=10&sort_by=-created_at`);
     const items = Array.isArray(list) ? list : list.result || list.data || [];
-    const recent = items.filter((t) => t.created_at >= since - 120000 && (!body.prompt || t.prompt === body.prompt));
+    const known = knownTaskIds(ctx);
+    const recent = items.filter((t) => t.created_at >= since - 120000 && !known.has(t.id) && (!body.prompt || t.prompt === body.prompt));
     return recent.length === 1 ? recent[0] : null;
   } catch {
     return null;
@@ -540,7 +586,7 @@ async function runTask(ctx, step, kind, body, label) {
   if (t && t.status === "SUCCEEDED" && t.task) return t.task;
 
   if (t && !t.id) {
-    const found = await recoverTask(endpoint, t.requestedAt, body);
+    const found = await recoverTask(ctx, endpoint, t.requestedAt, body);
     if (found) {
       log(`picked up the ${label} job started earlier (${found.id}).`);
       t.id = found.id;
@@ -556,10 +602,10 @@ async function runTask(ctx, step, kind, body, label) {
     log(`starting ${label}...`);
     let res;
     try {
-      res = await api("POST", endpoint, body, { context: kind });
+      res = await api("POST", endpoint, body, { context: kind, deadline: ctx.deadline });
     } catch (err) {
       if (err.extra && err.extra.uncertain) {
-        const found = await recoverTask(endpoint, t.requestedAt, body);
+        const found = await recoverTask(ctx, endpoint, t.requestedAt, body);
         if (!found) { ctx.dropped.add(step); delete tasks[step]; saveManifest(ctx); throw err; }
         res = { result: found.id };
       } else {
@@ -608,7 +654,7 @@ async function runTask(ctx, step, kind, body, label) {
         if (!t.counted) { ctx.spent += task.consumed_credits || 0; t.counted = true; }
         t.task = task;
         t.credits = task.consumed_credits;
-        t.expiresAt = task.expires_at || null;
+        t.expiresAt = expiryOf(task);
         saveManifest(ctx);
         log(`${label}: done.`);
         return task;
@@ -648,6 +694,8 @@ function newCtx(opts, claimed, request) {
     manifest,
     created: [],
     dropped: new Set(),
+    droppedClips: new Set(),
+    reanimate: [],
     spent: 0,
     deadline: Date.now() + (opts.wait || DEFAULT_WAIT_SECONDS) * 1000,
   };
@@ -698,14 +746,14 @@ async function makeModel(ctx) {
     if (r.body.preview_task_id === "$preview") r.body.preview_task_id = last.id;
     last = await runTask(ctx, r.step, r.kind, r.body, r.label);
   }
-  ctx.manifest.modelTask = { id: last.id, expiresAt: last.expires_at || null, kind: ctx.manifest.tasks[req.images.length ? "model" : "refine"].kind };
+  ctx.manifest.modelTask = { id: last.id, expiresAt: expiryOf(last), kind: ctx.manifest.tasks[req.images.length ? "model" : "refine"].kind };
   const urls = last.model_urls || {};
   if (!urls.glb) throw new MeshgenError("Meshy finished but sent no GLB file.");
   const files = {};
   for (const fmt of req.formats || ["glb"]) {
     if (!urls[fmt]) continue;
     const file = path.join(ctx.dir, "source", `model.${fmt}`);
-    await download(urls[fmt], file);
+    await download(urls[fmt], file, { ctx, step: req.images.length ? "model" : "refine" });
     files[fmt] = rel(ctx, file);
     if (fmt === "obj" && urls.mtl) await download(urls.mtl, path.join(ctx.dir, "source", "model.mtl"));
   }
@@ -735,13 +783,13 @@ async function remeshModel(ctx, polycount) {
   const body = { target_polycount: polycount, topology: m.request.topology || "triangle", target_formats: ["glb"] };
   const original = m.originalModelTask || m.modelTask;
   if (original && original.id && !isExpired(original)) body.input_task_id = original.id;
-  else body.model_url = dataUri(full, "model/gltf-binary");
+  else body.model_url = dataUri(full, "application/octet-stream");
   const task = await runTask(ctx, `remesh-${polycount}`, "remesh", body, `remesh to ${polycount} triangles`);
   const url = task.model_urls && task.model_urls.glb;
   if (!url) throw new MeshgenError("Meshy finished the remesh but sent no GLB file.");
-  await download(url, current);
+  await download(url, current, { ctx, step: `remesh-${polycount}` });
   if (!m.originalModelTask) m.originalModelTask = m.modelTask;
-  m.modelTask = { id: task.id, expiresAt: task.expires_at || null, kind: "remesh" };
+  m.modelTask = { id: task.id, expiresAt: expiryOf(task), kind: "remesh" };
   m.remeshed = polycount;
   saveManifest(ctx);
 }
@@ -764,7 +812,7 @@ async function rigModel(ctx) {
     if (!fs.existsSync(modelFile)) throw new MeshgenError("source/model.glb is missing, so there's nothing to rig.");
     body.model_url = dataUri(modelFile, "model/gltf-binary");
   }
-  const rigStep = m.tasks.rig && isExpired(m.tasks.rig) ? `rig-${Date.now()}` : "rig";
+  const rigStep = m.tasks.rig && (isExpired(m.tasks.rig) || isExpired(m.rig)) ? `rig-${Date.now()}` : "rig";
   if (rigStep !== "rig") {
     m.tasks[rigStep] = m.tasks.rig;
     delete m.tasks.rig;
@@ -774,18 +822,23 @@ async function rigModel(ctx) {
   const r = task.result || {};
   const src = path.join(ctx.dir, "source");
   if (!m.rig || m.rig.id !== task.id) {
-    // A new skeleton: the old rig's free clips don't fit it.
+    // A new skeleton: clips made for the old one don't fit it. Paid clips
+    // are made again on the new rig (four-legged rigs can't use the library).
     for (const f of ["walk.glb", "run.glb"]) fs.rmSync(path.join(src, f), { force: true });
-    m.clips = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined);
+    const paid = m.clips.filter((c) => c.actionId !== null && c.actionId !== undefined);
+    if (!m.request.quadruped) ctx.reanimate = paid.map((c) => `${c.name}=${c.actionId}`);
+    else if (paid.length) log(`a four-legged rig can't use Meshy's animation library, so ${paid.map((c) => c.name).join(", ")} were dropped.`);
+    for (const c of m.clips) ctx.droppedClips.add(c.name);
+    m.clips = [];
   }
-  await download(r.rigged_character_glb_url, path.join(src, "rigged.glb"));
+  await download(r.rigged_character_glb_url, path.join(src, "rigged.glb"), { ctx, step: "rig" });
   const basic = r.basic_animations || {};
   if (basic.walking_glb_url) await download(basic.walking_glb_url, path.join(src, "walk.glb"));
   if (basic.running_glb_url) await download(basic.running_glb_url, path.join(src, "run.glb"));
   if ((m.request.formats || []).includes("fbx") && r.rigged_character_fbx_url) {
     await download(r.rigged_character_fbx_url, path.join(src, "rigged.fbx"));
   }
-  m.rig = { id: task.id, expiresAt: task.expires_at || null, height };
+  m.rig = { id: task.id, expiresAt: expiryOf(task), height };
   saveManifest(ctx);
   return task;
 }
@@ -822,10 +875,15 @@ function needsLibrary(specs) {
 
 async function animateModel(ctx, specs) {
   const m = ctx.manifest;
+  const wantsPaid = specs.some((s) => { const a = ACTIONS[slugClip(s.split("=")[0])]; return s.includes("=") || !(a && a.free); });
+  if (wantsPaid && m.rig && isExpired(m.rig)) await rigModel(ctx);
+  // Clips the old rig had, made again for a new one (unless asked for now).
+  const names = new Set(specs.map((s) => slugClip(s.split("=")[0])));
+  specs = specs.concat(ctx.reanimate.filter((s) => !names.has(s.split("=")[0])));
+  ctx.reanimate = [];
   const library = needsLibrary(specs) ? await api("GET", "/openapi/v1/animations/library") : null;
   const wanted = specs.map((s) => resolveAction(s, library));
   const paid = wanted.filter((a) => !a.free || !hasFreeClip(ctx, a.free));
-  if (paid.length && m.rig && isExpired(m.rig)) await rigModel(ctx);
   for (let i = 0; i < paid.length; i += 10) {
     const batch = paid.slice(i, i + 10);
     const ids = [...new Set(batch.map((a) => a.id))];
@@ -833,7 +891,7 @@ async function animateModel(ctx, specs) {
     const task = await runTask(ctx, step, "animate", { rig_task_id: m.rig.id, action_ids: ids }, `animation (${batch.map((a) => a.clip).join(", ")})`);
     const r = task.result || {};
     const file = path.join(ctx.dir, "source", `anim-${task.id.slice(0, 8)}.glb`);
-    if (!fs.existsSync(file)) await download(r.animation_glb_url, file);
+    if (!fs.existsSync(file)) await download(r.animation_glb_url, file, { ctx, step });
     if ((m.request.formats || []).includes("fbx") && r.animation_fbx_url) {
       await download(r.animation_fbx_url, file.replace(/\.glb$/, ".fbx")).catch(() => {});
     }
@@ -858,6 +916,7 @@ function setClip(m, clip) {
 }
 
 function buildFinal(ctx) {
+  saveManifest(ctx); // picks up clips another command added meanwhile
   const m = ctx.manifest;
   const out = path.join(ctx.dir, `${ctx.name}.glb`);
   const rigged = path.join(ctx.dir, "source", "rigged.glb");
@@ -1082,7 +1141,7 @@ function inspectGlb(buf) {
   });
   const textures = (json.images || []).map((img) => imageInfo(gltf, img));
   const size = Number.isFinite(lo[0]) ? hi.map((v, k) => round(v - lo[k])) : null;
-  return {
+  const info = {
     bytes: buf.length,
     triangles,
     meshes: (json.meshes || []).length,
@@ -1096,6 +1155,9 @@ function inspectGlb(buf) {
     max: Number.isFinite(hi[0]) ? hi.map(round) : null,
     textures,
   };
+  // Exact bounds for resizing; kept out of the JSON that inspect prints.
+  Object.defineProperty(info, "exact", { value: { lo, hi }, enumerable: false });
+  return info;
 }
 
 function checkInspect(info, { height } = {}) {
@@ -1193,9 +1255,12 @@ function mergeClips(baseBuf, clips, { inPlace = true } = {}) {
       if (target === undefined) { missing++; continue; }
       const s = anim.samplers[ch.sampler];
       const pin = inPlace && target === root && ch.target.path === "translation";
+      const cubic = s.interpolation === "CUBICSPLINE";
       const output = copyAcc(s.output, pin ? (arr, size) => {
-        for (let i = 0; i < arr.length; i += size) {
-          for (let k = 0; k < 3; k++) if (k !== upAxis) arr[i + k] = rest[k];
+        for (let i = 0, e = 0; i < arr.length; i += size, e++) {
+          // CUBICSPLINE stores in-tangent, value, out-tangent per keyframe.
+          const tangent = cubic && e % 3 !== 1;
+          for (let k = 0; k < 3; k++) if (k !== upAxis) arr[i + k] = tangent ? 0 : rest[k];
         }
       } : null);
       out.samplers.push({ input: copyAcc(s.input), output, interpolation: s.interpolation || "LINEAR" });
@@ -1211,14 +1276,15 @@ function mergeClips(baseBuf, clips, { inPlace = true } = {}) {
 // Puts the scene under one new root node, scaled to the given height and
 // standing on y=0.
 function scaleToHeight(buf, height) {
-  const info = inspectGlb(buf);
-  if (!info.height) return buf;
+  const { lo, hi } = inspectGlb(buf).exact;
+  const current = hi[1] - lo[1];
+  if (!Number.isFinite(current) || current <= 0) return buf;
   const gltf = parseGlb(buf);
   const json = gltf.json;
-  const s = height / info.height;
+  const s = height / current;
   const sceneIndex = json.scene || 0;
   const scene = json.scenes[sceneIndex];
-  json.nodes.push({ name: "meshgen_root", scale: [s, s, s], translation: [0, -info.min[1] * s, 0], children: scene.nodes });
+  json.nodes.push({ name: "meshgen_root", scale: [s, s, s], translation: [0, -lo[1] * s, 0], children: scene.nodes });
   scene.nodes = [json.nodes.length - 1];
   return writeGlb(json, gltf.bin);
 }
@@ -1446,6 +1512,8 @@ function resolveGlb(opts, target) {
 function serve(glbFile, port = 0) {
   const types = { ".html": "text/html", ".js": "text/javascript", ".glb": "model/gltf-binary", ".css": "text/css" };
   const server = http.createServer((req, res) => {
+    const host = String(req.headers.host || "").replace(/:\d+$/, "");
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) { res.writeHead(403); res.end(); return; }
     let url;
     try { url = decodeURIComponent(req.url.split("?")[0]); } catch { url = null; }
     if (!url || url.includes("\0")) { res.writeHead(400); res.end(); return; }
@@ -1652,9 +1720,13 @@ async function cmdModel(opts, character) {
   const ctx = newCtx(opts, claimed, request);
   if (claimed.manifest) {
     // A resumed run takes this run's later-step options.
-    for (const key of ["actions", "maxTexture", "rootMotion", "height"]) {
-      if (request[key] !== undefined && request[key] !== null) ctx.manifest.request[key] = request[key];
-    }
+    const passed = {
+      actions: opts.actions !== undefined,
+      maxTexture: opts.maxTexture !== undefined,
+      rootMotion: !!opts.rootMotion,
+      height: opts.height !== undefined || !!(opts.print && opts.heightMm),
+    };
+    for (const key of Object.keys(passed)) if (passed[key]) ctx.manifest.request[key] = request[key];
   }
   saveManifest(ctx);
   if (!fs.existsSync(path.join(ctx.dir, "source", "model.glb")) || !ctx.manifest.modelTask) await makeModel(ctx);
@@ -1709,7 +1781,7 @@ async function cmdRemesh(opts) {
 async function cmdRig(opts) {
   const claimed = openAsset(opts, opts.positional[0]);
   const paid = claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined).map((c) => `${c.name}=${c.actionId}`);
-  const credits = 5 + paid.length * 3;
+  const credits = 5 + ((opts.quadruped || claimed.manifest.request.quadruped) ? 0 : paid.length * 3);
   if (opts.dryRun) return dryRun("rig", opts, null, credits);
   const before = await balance();
   checkBudget(opts, credits, before);
@@ -1717,8 +1789,7 @@ async function cmdRig(opts) {
   if (opts.height) ctx.manifest.request.height = opts.height;
   if (opts.quadruped) ctx.manifest.request.quadruped = true;
   await rigModel(ctx);
-  const specs = ctx.manifest.request.quadruped ? ["walk", "run"].filter((w) => hasFreeClip(ctx, w)) : ["walk", "run", ...paid];
-  await animateModel(ctx, specs);
+  await animateModel(ctx, ["walk", "run"].filter((w) => hasFreeClip(ctx, w)));
   buildFinal(ctx);
   const result = await finish(ctx, "rig", before);
   Object.assign(result, await tryPreview(ctx));
@@ -1730,7 +1801,9 @@ async function cmdAnimate(opts) {
   if (!specs.length) throw new MeshgenError("Say which actions to add, like: meshgen animate hero idle slash cast");
   const claimed = openAsset(opts, opts.positional[0]);
   const rigged = !!claimed.manifest.rig;
-  const credits = actionCredits(specs) + (rigged ? 0 : 5);
+  const reRig = rigged && isExpired(claimed.manifest.rig);
+  const redo = reRig ? claimed.manifest.clips.filter((c) => c.actionId !== null && c.actionId !== undefined && !specs.some((s) => slugClip(s.split("=")[0]) === c.name)).length : 0;
+  const credits = actionCredits(specs) + (rigged && !reRig ? 0 : 5) + redo * 3;
   if (opts.dryRun) return dryRun("animate", opts, null, credits);
   const before = await balance();
   checkBudget(opts, credits, before);
@@ -1833,6 +1906,9 @@ async function cmdPrintStep(opts, kind) {
     body = { ...printInput(claimed, false), mode: opts.parts ? "by_parts" : "auto", target_formats: ["glb", "stl", "3mf"], layout: opts.plate ? "on_plate" : "assembled" };
     if (opts.parts) body.prompt = opts.parts;
     if (opts.connectors) body.connectors = true;
+    if (body.model_url) {
+      throw new MeshgenError("split needs Meshy's original job, and Meshy keeps jobs only 3 days. Make the model again (model --print), then split it.");
+    }
   }
   if (opts.dryRun) {
     return out({ success: true, dryRun: true, command: kind, credits: 10, steps: [{ endpoint: `POST ${ENDPOINTS[kind]}`, body: { ...body, model_url: body.model_url && "data:..." } }] });
@@ -1856,14 +1932,15 @@ async function cmdPrintStep(opts, kind) {
   for (const [fmt, url] of Object.entries(task.model_urls || {})) {
     if (!url) continue;
     const file = path.join(ctx.dir, "print", `${ctx.name}-${kind}.${fmt}`);
-    await download(url, file);
+    await download(url, file, { ctx, step });
     files.push(path.relative(process.cwd(), file));
   }
   if (!files.length) throw new MeshgenError(`Meshy finished the ${kind} but sent no files.`);
   // Repair answers with a GLB; slicers want STL, in millimeters, Z up.
   const repairedGlb = files.find((f) => f.endsWith("-repair.glb"));
   if (repairedGlb) {
-    const mm = opts.heightMm || (ctx.manifest.request.height ? ctx.manifest.request.height * 1000 : null);
+    const req = ctx.manifest.request;
+    const mm = opts.heightMm || (req.print && req.height ? req.height * 1000 : null);
     if (mm) {
       const stl = repairedGlb.replace(/\.glb$/, ".stl");
       fs.writeFileSync(stl, glbToStl(fs.readFileSync(repairedGlb), mm));

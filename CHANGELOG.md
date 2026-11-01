@@ -7,6 +7,7 @@
 - `--quadruped` asks Meshy for a four-legged rig. It's experimental: in testing the rig came back far too small (meshgen now rescales a rig that comes back more than twice off the height you asked for) and its walk clip wasn't usable.
 - Two meshgen commands can now work on the same asset at once without losing each other's Meshy job records.
 - The skill adds up the cost of a whole request and asks once.
+- Fixes from a bug review (#1): a lost answer from Meshy can no longer attach another asset's model; a new rig remakes the clips made for the old one; a rerun keeps the height, clips and options you chose before; jobs Meshy has deleted are remade on the next run instead of getting stuck; two commands on one asset keep each other's clips; a busy Meshy respects `--wait`; tiny rigs are resized exactly.
 - New demos: the Creature Showcase (a fish, dragon, frog and cat animated in code) and a gallery page at zeveck.github.io/meshgen.
 
 ## 2026.11.1
