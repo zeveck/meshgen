@@ -37,7 +37,7 @@ const { execFile } = require("child_process");
 })();
 
 // Date-based release version; keep in sync with package.json (tests check).
-const MESHGEN_VERSION = "2026.11.1.4";
+const MESHGEN_VERSION = "2026.11.1.5";
 
 // MESHGEN_API_BASE exists for the offline tests, which run a fake Meshy.
 const API_BASE = (process.env.MESHGEN_API_BASE || "https://api.meshy.ai").replace(/\/$/, "");

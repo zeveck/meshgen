@@ -19,7 +19,7 @@ It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 ## See it
 
 <a href="https://zeveck.github.io/meshgen/mage/">
-  <img src="examples/mage/front.png" alt="A spiky-haired mage with red and purple sunglasses casting a spell, a crystal staff in one hand and a flaming sword in the other" width="100%">
+  <img src="examples/mage/front.png" alt="A spiky-haired mage in a tall-collared coat and sunglasses with one purple and one red lens, raising a flaming sword, a crystal staff in his other hand" width="100%">
 </a>
 
 **[Play the Mage Playground](https://zeveck.github.io/meshgen/mage/)** in
@@ -28,12 +28,12 @@ your browser (keyboard and mouse), or see
 sword came from three imagegen2 concept pictures and these meshgen commands:
 
 ```
-/meshgen character mage --image concepts/mage.png --height 1.75 --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave
+/meshgen character mage --image concepts/mage.png --height 1.75 --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave --texture-prompt "Round sunglasses with one vivid purple lens and one vivid red lens. Black spiky hair. Tall navy stand-up collar with gold trim."
 /meshgen model staff --image concepts/staff.png --height 1.6
 /meshgen model sword --image concepts/sword.png --height 1.0
 ```
 
-<a href="https://zeveck.github.io/meshgen/mage/"><img src="examples/media/mage.gif" alt="The mage swings a flaming sword, then casts an arcane nova" width="100%"></a>
+<a href="https://zeveck.github.io/meshgen/mage/"><img src="examples/media/mage.gif" alt="The mage swings a flaming sword, throws a fireball, casts an arcane nova and slashes again" width="100%"></a>
 
 The clips (slash, spell, walk, run and seven more) are Meshy's, on Meshy's
 rig. The flames, fireballs and nova are three.js effects in the game's code.
@@ -48,7 +48,7 @@ in a few lines of shader code, like these four from the
 <table>
   <tr>
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/betta.gif" alt="A betta fish swimming" width="100%"></a></td>
-    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flapping its wings" width="100%"></a></td>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flying past clouds" width="100%"></a></td>
   </tr>
   <tr>
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/frog.gif" alt="A tree frog hopping between lily pads" width="100%"></a></td>

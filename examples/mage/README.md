@@ -24,18 +24,18 @@ The pictures in `concepts/` came from imagegen2. Then:
 
 ```bash
 meshgen character mage --image concepts/mage.png --height 1.75 \
-  --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave
+  --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave \
+  --texture-prompt "Round sunglasses with one vivid purple lens and one vivid red lens. Black spiky hair. Tall navy stand-up collar with gold trim."
 meshgen model staff --image concepts/staff.png --height 1.6
 meshgen model sword --image concepts/sword.png --height 1.0
 meshgen remesh staff
 meshgen remesh sword
 ```
 
-That came to 137 Meshy credits: 67 for the mage (30 model, 5 remesh, 5 rig,
-27 for nine clips; walk and run were free), and 35 each for the staff and
-sword (30 for the model, 5 for the remesh). meshgen now asks Meshy for
-game-sized meshes up front, so the remeshes aren't needed and the same
-assets would cost 122.
+The mage took 62 Meshy credits: 30 for the model, 5 for the rig and 27 for
+nine clips (walk and run were free). The staff and sword took 35 each: 30 for
+the model and 5 for a remesh. meshgen now asks Meshy for game-sized meshes up
+front, so those remeshes aren't needed anymore.
 
 The weapons are separate models attached to the `RightHand` and `LeftHand`
 bones in `game.js`. The flames, fireballs, nova and dummies are all made in

@@ -119,9 +119,48 @@ async function betta() {
 
 // ---------------------------------------------------------------------------
 // Dragon: the picture was a front view with wings out to the sides, so the
-// wings are ±X, head +Y and belly +Z. Wing vertices swing in Z by how far out
-// they are; the model is then tipped forward to fly belly-down.
+// wings are ±X, head +Y and belly +Z. Each wing turns about its shoulder
+// (a quick downstroke, a slower upstroke, the tip trailing a little), and
+// the model is tipped forward to fly belly-down over a sea of clouds.
 // ---------------------------------------------------------------------------
+
+// A soft round puff, drawn once and shared by every cloud sprite.
+function puffTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.45, 'rgba(255,255,255,.85)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function skyTexture(top, bottom) {
+  const c = document.createElement('canvas');
+  c.width = 2;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bottom);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 2, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Same clouds on every load, so screenshots and GIFs match.
+function seeded(seed) {
+  return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+}
+
+const DRAGON_LOOP = 5.6; // seconds: four wingbeats, one weave, clouds wrap
 
 async function dragon() {
   const { group, box, size } = bake(await load('dragon'));
@@ -129,7 +168,7 @@ async function dragon() {
   group.scale.setScalar(scale);
   group.position.set(-(box.min.x + size.x / 2) * scale, -(box.min.y + size.y / 2) * scale, -(box.min.z + size.z / 2) * scale);
   const tilt = new THREE.Group();
-  tilt.rotation.x = Math.PI / 2;
+  tilt.rotation.x = Math.PI / 2 - 0.1; // belly down, head a touch up
   tilt.add(group);
   const bank = new THREE.Group();
   bank.add(tilt);
@@ -137,47 +176,75 @@ async function dragon() {
   dragon.add(bank);
   const centerX = box.min.x + size.x / 2;
   const u = {
-    uTime: { value: 0 }, uCenterX: { value: centerX }, uBody: { value: size.x * 0.12 },
+    uTime: { value: 0 }, uCenterX: { value: centerX }, uBody: { value: size.x * 0.1 },
     uHalf: { value: size.x / 2 }, uMinY: { value: box.min.y }, uHeight: { value: size.y },
   };
   deform(group, 'dragon', u, `
-    float out_ = max(abs(position.x - uCenterX) - uBody, 0.0) / (uHalf - uBody);
-    float flap = sin(uTime * 4.5);
-    transformed.z += flap * out_ * out_ * uHalf * 0.75;
-    transformed.x -= sign(position.x - uCenterX) * abs(flap) * out_ * uHalf * 0.08;
+    float side = sign(position.x - uCenterX);
+    float r = max(abs(position.x - uCenterX) - uBody, 0.0);
+    float out_ = r / (uHalf - uBody);
+    float phase = uTime * 6.2832 / 1.4;
+    // Fast down, slow up: a sine bent by its own phase.
+    float beat = sin(phase + 0.6 * sin(phase));
+    float lag = sin(phase - 0.9 + 0.6 * sin(phase - 0.9));
+    float angle = 0.65 * mix(beat, lag, out_) + 0.1;
+    float w = smoothstep(0.0, 0.15, out_);
+    transformed.x = mix(position.x, uCenterX + side * (uBody + r * cos(angle)), w);
+    transformed.z = mix(position.z, position.z - r * sin(angle), w);
     float tail = clamp((uMinY + uHeight * 0.35 - position.y) / (uHeight * 0.35), 0.0, 1.0);
-    transformed.x += sin(uTime * 2.5 - tail * 3.0) * tail * tail * uHeight * 0.12;
+    transformed.x += sin(phase * 0.5 - tail * 3.0) * tail * tail * uHeight * 0.1;
   `);
-  const scene = baseScene(0x86b8e8, 0x6b8f5a, [8, 30]);
+  const scene = baseScene(0x9cc7ee, 0x9aa6b8, [14, 40]);
+  scene.background = skyTexture('#3f7fcf', '#cfe4f7');
   scene.add(dragon);
-  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
-  for (let i = 0; i < 9; i++) {
+
+  // Clouds: clusters of soft sprites in three layers. They stream past the
+  // dragon and wrap around, so it reads as flying forward.
+  const rand = seeded(7);
+  const puff = puffTexture();
+  const clouds = [];
+  for (let i = 0; i < 26; i++) {
     const cloud = new THREE.Group();
-    for (let k = 0; k < 4; k++) {
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.6 + Math.random() * 0.5, 12, 8), cloudMat);
-      puff.position.set(k * 0.7, Math.random() * 0.3, Math.random() * 0.4);
-      cloud.add(puff);
+    const below = i < 16;
+    const y = below ? -3 - rand() * 1.5 : 5 + rand() * 2;
+    const n = 5 + Math.floor(rand() * 5);
+    for (let k = 0; k < n; k++) {
+      const shade = below ? 0.92 + rand() * 0.08 : 0.97;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: puff, color: new THREE.Color(shade, shade, shade * 1.02), transparent: true, opacity: below ? 0.95 : 0.7, depthWrite: false }));
+      const s = 1.6 + rand() * 1.8;
+      sprite.scale.set(s * 1.4, s, 1);
+      sprite.position.set((k - n / 2) * 0.8 + rand() * 0.4, rand() * 0.5 - (k % 2) * 0.3, rand() * 0.8);
+      cloud.add(sprite);
     }
-    const a = (i / 9) * Math.PI * 2;
-    cloud.position.set(Math.cos(a) * 9, -2.5 + Math.random() * 1.5, Math.sin(a) * 9);
+    cloud.userData = { x: (rand() - 0.5) * 26, y, z0: rand() * 40 };
+    clouds.push(cloud);
     scene.add(cloud);
   }
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 6, 10), new THREE.MeshStandardMaterial({ color: 0x8a8790 }));
-  tower.position.set(0, -4.5, 0);
-  scene.add(tower);
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 80);
-  camera.position.set(0, 1.6, 7.5);
-  camera.lookAt(0, -0.3, 0);
+
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 80);
+  const look = new THREE.Vector3();
   panels.push({
-    name: 'Dragon', how: 'Meshy model · wing flap and tail sway in a vertex shader', scene, camera,
+    name: 'Dragon', how: 'Meshy model · wingbeats and tail sway in a vertex shader', scene, camera, zoom: 1.1,
     update(t) {
       u.uTime.value = t;
-      const a = t * 0.45;
-      dragon.position.set(Math.cos(a) * 3, Math.sin(t * 4.5 + 1.2) * 0.12, Math.sin(a) * 2.2);
-      dragon.rotation.y = Math.atan2(-Math.sin(a) * 3, Math.cos(a) * 2.2);
-      bank.rotation.z = -0.35;
-      camera.position.set(dragon.position.x * 0.5, 1.4, dragon.position.z * 0.5 + 5.2);
-      camera.lookAt(dragon.position);
+      const a = (t / DRAGON_LOOP) * Math.PI * 2;
+      // A lazy weave and bob. It flies toward the camera (+Z), which backs
+      // away in front of it, so the clouds stream off behind.
+      dragon.position.set(Math.sin(a) * 1.4, Math.sin(a * 2) * 0.25 + Math.sin(t * 4.488 + 1.4) * 0.08, 0);
+      dragon.rotation.y = Math.cos(a) * 0.35;
+      bank.rotation.z = -0.55 - Math.cos(a) * 0.25; // rolled toward the camera
+      // Clouds move -Z, one wrap per loop.
+      for (const c of clouds) {
+        const { x, y, z0 } = c.userData;
+        const z = 4 - ((z0 + (t / DRAGON_LOOP) * 40) % 40);
+        c.position.set(x, y, z);
+        // Fade in far away and out before reaching the camera.
+        const fade = Math.min(1, (z + 36) / 6, (4 - z) / 4);
+        c.children.forEach((sp) => { sp.material.opacity = fade * (y < 0 ? 0.95 : 0.7); });
+      }
+      camera.position.set(dragon.position.x * 0.4 + 3.6, 1.6, 2.6);
+      look.set(dragon.position.x * 0.7, dragon.position.y - 0.2, 0);
+      camera.lookAt(look);
     },
   });
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.11.1.5
+
+- Simpler handling of a rig Meshy has deleted (#6). `animate` no longer rigs again by itself: it stops before spending anything and says to run `meshgen rig <name>`, which rigs again and remakes all the character's paid clips in one job. A rerun after a timeout picks up the same job.
+- Demos: the mage is remade with this version, with a taller collar, and the hero shot shows its purple and red lenses. The dragon flies over soft clouds with proper wingbeats, and the GIFs are two to three times longer.
+
 ## 2026.11.1.4
 
 - Fixes from a fourth bug review (#4): if a new rig (for one Meshy had deleted) is still being made when the command stops waiting, running it again picks up that rig instead of paying for another; text models saved by 2026.11.1, which had no expiry recorded, now expire after 3 days like everything else, so they no longer get stuck.
