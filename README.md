@@ -18,11 +18,14 @@ It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 
 ## See it
 
-![Mage Playground](examples/mage/screenshot.png)
+<a href="https://zeveck.github.io/meshgen/mage/">
+  <img src="examples/mage/screenshot.png" alt="Mage Playground: a spiky-haired mage with a crystal staff and a flaming sword among training dummies" width="100%">
+</a>
 
-A spiky-haired mage with one purple and one red sunglass lens, a crystal
-staff and a sword that burns, playable in
-[`examples/mage`](examples/mage). The character, staff and sword came from
+**[Play the Mage Playground](https://zeveck.github.io/meshgen/mage/)** in
+your browser (keyboard and mouse): a spiky-haired mage with one purple and
+one red sunglass lens, a crystal staff and a sword that burns. The source is
+in [`examples/mage`](examples/mage). The character, staff and sword came from
 three imagegen2 concept pictures and these meshgen commands:
 
 ```

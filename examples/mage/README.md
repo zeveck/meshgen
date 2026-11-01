@@ -5,7 +5,7 @@ with one purple and one red sunglass lens, a crystal staff, and a sword that
 burns. Topple the training dummies with the sword, fireballs and an arcane
 nova.
 
-Run it from this folder with any static server, for example
+Play it at https://zeveck.github.io/meshgen/mage/, or run it from this folder with any static server, for example
 `python3 -m http.server 8790`, then open http://localhost:8790.
 
 | Keys | Action |
