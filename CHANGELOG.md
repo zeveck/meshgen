@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.1.3
+
+- Fixes from a third bug review (#3): clips made again on a new rig keep their looping (idle, walk and run kept looping), and if that remake times out, running the command again picks up the same Meshy job instead of paying again and dropping the clips.
+
 ## 2026.11.1.2
 
 - 3D printing has its own guide, `printing.md`, which the skill reads only when you ask for a print: sizes in millimeters, solid shapes, overhangs and supports. Game requests never load it.
