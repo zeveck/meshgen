@@ -3,7 +3,7 @@
 ## 2026.11.1.5
 
 - Simpler handling of a rig Meshy has deleted (#6). `animate` no longer rigs again by itself: it stops before spending anything and says to run `meshgen rig <name>`, which rigs again and remakes all the character's paid clips in one job. A rerun after a timeout picks up the same job.
-- Demos: the mage is remade with this version, with a taller collar, and the hero shot shows its purple and red lenses. The dragon flies over soft clouds with proper wingbeats, and the GIFs are two to three times longer.
+- Demos: the mage is remade with this version, with a taller collar, and the hero shot shows its purple and red lenses. The dragon flies over soft clouds with proper wingbeats, the frog kicks its hind legs out behind it when it hops, and the GIFs are two to three times longer.
 
 ## 2026.11.1.4
 

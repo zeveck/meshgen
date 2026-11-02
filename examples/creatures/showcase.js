@@ -31,14 +31,17 @@ function bake(gltf) {
 }
 
 // Adds a bit of GLSL after three.js computes `transformed` (the vertex in
-// model space), with shared uniforms.
-function deform(group, key, uniforms, glsl) {
+// model space), with shared uniforms. `head` adds GLSL functions, and
+// `normal` runs after `objectNormal` is set, to turn normals to match.
+function deform(group, key, uniforms, glsl, { head = '', normal = '' } = {}) {
   group.traverse((o) => {
     if (!o.isMesh) return;
     o.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, uniforms);
       const decl = Object.keys(uniforms).map((u) => `uniform float ${u};`).join('\n');
-      shader.vertexShader = decl + '\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n${glsl}`);
+      shader.vertexShader = decl + '\n' + head + '\n' + shader.vertexShader
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${normal}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${glsl}`);
     };
     o.material.customProgramCacheKey = () => key;
   });
@@ -250,8 +253,14 @@ async function dragon() {
 }
 
 // ---------------------------------------------------------------------------
-// Frog: front view, sitting. Hops pad to pad with squash and stretch; the
-// hind legs stretch back in the air.
+// Frog: front view, sitting, hind legs folded at its sides with the feet
+// forward. Hops pad to pad with squash and stretch. In the air the hind legs
+// fold out backward about the hip: the folded leg is mirrored front to back
+// and stretched, so the foot (its front) ends up trailing furthest behind.
+// The mesh is one shell with the thighs joined to the body, so the leg can't
+// be cut free and turned; folding it this way keeps the surface whole.
+// Mirrored faces show their back, so the frog is drawn double-sided and its
+// normals are mirrored to match.
 // ---------------------------------------------------------------------------
 
 async function frog() {
@@ -259,17 +268,47 @@ async function frog() {
   const scale = 0.6 / size.y;
   group.scale.setScalar(scale);
   group.position.set(-(box.min.x + size.x / 2) * scale, -box.min.y * scale, -(box.min.z + size.z / 2) * scale);
+  group.traverse((o) => { if (o.isMesh) o.material.side = THREE.DoubleSide; });
   const squash = new THREE.Group();
   squash.add(group);
   const frog = new THREE.Group();
   frog.add(squash);
-  const u = { uTime: { value: 0 }, uLeg: { value: 0 }, uMinY: { value: box.min.y }, uH: { value: size.y }, uCZ: { value: box.min.z + size.z / 2 }, uD: { value: size.z } };
+  const u = {
+    uLeg: { value: 0 }, uMinY: { value: box.min.y }, uH: { value: size.y },
+    uCX: { value: box.min.x + size.x / 2 }, uHalfX: { value: size.x / 2 }, uMinZ: { value: box.min.z }, uD: { value: size.z },
+  };
+  const head = `
+    // How much of a hind leg this vertex is (low and out at the sides; the
+    // front feet are nearer the middle) times how far the legs are out.
+    float legWeight(vec3 p) {
+      float side = smoothstep(0.5, 0.65, abs(p.x - uCX) / uHalfX);
+      float low = 1.0 - smoothstep(0.35, 0.5, (p.y - uMinY) / uH);
+      return side * low * uLeg;
+    }
+    float hipZ() { return uMinZ + uD * 0.3; }
+    // The front-to-back scale about the hip: in front of it the leg is
+    // mirrored behind (negative), behind it the leg is stretched.
+    float legScale(vec3 p) {
+      return mix(1.0, p.z > hipZ() ? -1.6 : 1.6, legWeight(p));
+    }
+  `;
   deform(group, 'frog', u, `
-    float low = clamp(1.0 - (position.y - uMinY) / (uH * 0.4), 0.0, 1.0);
-    float back = clamp((uCZ - position.z) / (uD * 0.5) + 0.6, 0.0, 1.0);
-    transformed.z -= uLeg * low * back * uD * 0.9;
-    transformed.y -= uLeg * low * back * uH * 0.12;
-  `);
+    float w = legWeight(position);
+    float reach = position.z - hipZ();
+    float hipY = uMinY + uH * 0.3;
+    transformed.z = hipZ() + reach * legScale(position);
+    transformed.y = mix(position.y, hipY + (position.y - hipY) * 0.8 - abs(reach) * 0.06, w);
+    transformed.x = mix(position.x, uCX + (position.x - uCX) * 0.85, w);
+  `, {
+    head,
+    // Normals of a surface scaled by s along z: (x, y, z / s). Where s < 0 the
+    // faces flip, and three.js negates normals of back faces, so pre-negate.
+    normal: `
+      float s = legScale(position);
+      float sa = sign(s) * max(abs(s), 0.25);
+      objectNormal = sign(s) * vec3(objectNormal.x, objectNormal.y, objectNormal.z / sa);
+    `,
+  });
   const scene = baseScene(0x9fd0c8, 0x2f5a3a, [6, 20]);
   const water = new THREE.Mesh(new THREE.CircleGeometry(14, 40), new THREE.MeshStandardMaterial({ color: 0x2f6f73, roughness: 0.25, metalness: 0.1 }));
   water.rotation.x = -Math.PI / 2;
@@ -288,9 +327,8 @@ async function frog() {
   camera.lookAt(0, 0, 0);
   const HOP = 1.7;
   panels.push({
-    name: 'Tree frog', how: 'Meshy model · squash, stretch and hops in code', scene, camera, zoom: 1.3,
+    name: 'Tree frog', how: 'Meshy model · hops, squash and leg kicks in a vertex shader', scene, camera, zoom: 1.3,
     update(t) {
-      u.uTime.value = t;
       const n = Math.floor(t / HOP);
       const f = (t % HOP) / HOP;
       const from = pads[n % pads.length];
