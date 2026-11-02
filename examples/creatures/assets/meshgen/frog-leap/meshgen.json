@@ -1,0 +1,89 @@
+{
+  "name": "frog-leap",
+  "createdAt": "2026-11-02T05:50:33.596Z",
+  "request": {
+    "prompt": null,
+    "images": [
+      "concepts/frog-leap.png"
+    ],
+    "texturePrompt": null,
+    "draft": false,
+    "height": null,
+    "polycount": null,
+    "topology": null,
+    "pose": null,
+    "pbr": false,
+    "texture": null,
+    "formats": [
+      "glb"
+    ],
+    "rootMotion": false,
+    "quadruped": false,
+    "print": false,
+    "character": false,
+    "actions": null
+  },
+  "requestHash": "346b917ffb52e1e573a8804ee86680ad944f5952",
+  "tasks": {
+    "model": {
+      "kind": "image",
+      "hash": "2554915f63fe1d07787919606a58ad78f4e7ad3f",
+      "requestedAt": 1793598633642,
+      "id": "01a19acf-3753-7182-8ef8-f747728245e5",
+      "status": "SUCCEEDED",
+      "counted": true,
+      "task": {
+        "id": "01a19acf-3753-7182-8ef8-f747728245e5",
+        "type": "image-to-3d",
+        "name": "",
+        "art_style": "",
+        "object_prompt": "",
+        "style_prompt": "",
+        "negative_prompt": "",
+        "texture_prompt": "",
+        "texture_image_url": "",
+        "text_style_prompt": "",
+        "image_style_url": "",
+        "status": "SUCCEEDED",
+        "created_at": 1793598634829,
+        "progress": 100,
+        "started_at": 1793598634835,
+        "finished_at": 1793598676512,
+        "expires_at": 1793857876512,
+        "task_error": null,
+        "model_url": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19acf-3753-7182-8ef8-f747728245e5/output/model.glb?Expires=1793857876&Signature=f0QMb2YcECIGlNwBY0QjEWC1RThGO4bQIji3se2IHAeJc6YNHLChcCBWng6f5i~fLzLdJc4irpq1sqDtPYnG9k07A-9CT72vU6yoHz-XxO84p-2i1Kkhm4UI2JOfczhrouQ2EraKzqISDiPoaipSiiZmqilu6sBiQ2YmzKA2M6ypa2Mg4jdvrUuT7QD1nP9vaJx4BMwDCRFgsUN7mQo-Rt7GkQPJrV3cpgGsJOYIp-fn~AVhQRSZIOyzb9aYfvQDtkvE9vV2eV2WwGbwZ6anRfhFJVQFjt5X4QN~bUdP1WRb8CpudkCYXN7UHJeWyz3R86klftQOK9iItzDYq2Afag__&Key-Pair-Id=K1VGYTHIYLM9UM",
+        "model_urls": {
+          "glb": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19acf-3753-7182-8ef8-f747728245e5/output/model.glb?Expires=1793857876&Signature=f0QMb2YcECIGlNwBY0QjEWC1RThGO4bQIji3se2IHAeJc6YNHLChcCBWng6f5i~fLzLdJc4irpq1sqDtPYnG9k07A-9CT72vU6yoHz-XxO84p-2i1Kkhm4UI2JOfczhrouQ2EraKzqISDiPoaipSiiZmqilu6sBiQ2YmzKA2M6ypa2Mg4jdvrUuT7QD1nP9vaJx4BMwDCRFgsUN7mQo-Rt7GkQPJrV3cpgGsJOYIp-fn~AVhQRSZIOyzb9aYfvQDtkvE9vV2eV2WwGbwZ6anRfhFJVQFjt5X4QN~bUdP1WRb8CpudkCYXN7UHJeWyz3R86klftQOK9iItzDYq2Afag__&Key-Pair-Id=K1VGYTHIYLM9UM"
+        },
+        "thumbnail_url": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19acf-3753-7182-8ef8-f747728245e5/output/preview.png?Expires=1793857876&Signature=MvXzQ3Hp-dxXIXMIo0L0WlSMEVCN6DMzCRO4dFu0Pfh8UEW12TDb5vpvVmtnbYE0f~TkGn~K9BFWnoR8fcT7haxkolJPYE91oYDAgpkmbGb1k9malYeXmrugQouLCugt93oWcNCRX2TNZ-LlgzbJTjDu0fQAhSLlUPIjyM074Sn2M8EMAEa8bC~nocXCeguvsOY8lb2eUP61szbMN0eqn6A73Pzg4fL~hvN~0xm2ee-V3MZBMvGO3twwmczhi6cs4BRYg5v66-~Sa-m4yZj4Gzcf1aXpJ9XndPn~5A~WLnwkgWvdleEINiY1nvS5peCzlC~FbWCtGSa5hi8awOg~MA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+        "texture_urls": [
+          {
+            "base_color": "https://assets.meshy.ai/00cbdcf2-aa8f-4b2f-a382-f25c0db4969e/tasks/01a19acf-3753-7182-8ef8-f747728245e5/output/texture_0.png?Expires=1793857876&Signature=hXmwrao2YaFFYJu3lvUrWKwuzseHyLocpuyD-IAehe-Gt6VZOMaNJa~rUd7vfVx1FuWL3Sghx0LYKFQb7uxmGB2pk~gLKJrAMrSTA-bbIHNzH8UKPCJYpYgOeiG4jVbHIKRob4dl2SSqd26OGHzelUG8ntNbrbeqcPzxxBI3fZo8tgUWfEXH9qXrMZWkkrNepb8gqjoq~JIvoPylQUc-Xs2X7Uggah84chfcijng2zAZtOUiRUnztNf3kFsTGq5KQON19oSA6xf7q6jtOMKQQ7BHBZiAGM-HvLmfE9nE05bJSX2ayZGMhRlpr4lTKqgpsxMv3G7n5o3aTaJAVoiqnQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+          }
+        ],
+        "consumed_credits": 30
+      },
+      "credits": 30,
+      "expiresAt": 1793857876512
+    }
+  },
+  "clips": [],
+  "updatedAt": "2026-11-02T05:51:18.429Z",
+  "print": {},
+  "modelTask": {
+    "id": "01a19acf-3753-7182-8ef8-f747728245e5",
+    "expiresAt": 1793857876512,
+    "kind": "image"
+  },
+  "files": {
+    "model": {
+      "glb": "source/model.glb"
+    }
+  },
+  "warnings": [],
+  "notes": [
+    "Kept image/jpeg 2048px textures as they are: meshgen shrinks PNG only, and Meshy's JPEGs are already compact."
+  ],
+  "done": true,
+  "creditsUsed": 30
+}

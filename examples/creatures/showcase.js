@@ -31,17 +31,14 @@ function bake(gltf) {
 }
 
 // Adds a bit of GLSL after three.js computes `transformed` (the vertex in
-// model space), with shared uniforms. `head` adds GLSL functions, and
-// `normal` runs after `objectNormal` is set, to turn normals to match.
-function deform(group, key, uniforms, glsl, { head = '', normal = '' } = {}) {
+// model space), with shared uniforms.
+function deform(group, key, uniforms, glsl) {
   group.traverse((o) => {
     if (!o.isMesh) return;
     o.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, uniforms);
       const decl = Object.keys(uniforms).map((u) => `uniform float ${u};`).join('\n');
-      shader.vertexShader = decl + '\n' + head + '\n' + shader.vertexShader
-        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${normal}`)
-        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${glsl}`);
+      shader.vertexShader = decl + '\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n${glsl}`);
     };
     o.material.customProgramCacheKey = () => key;
   });
@@ -253,62 +250,30 @@ async function dragon() {
 }
 
 // ---------------------------------------------------------------------------
-// Frog: front view, sitting, hind legs folded at its sides with the feet
-// forward. Hops pad to pad with squash and stretch. In the air the hind legs
-// fold out backward about the hip: the folded leg is mirrored front to back
-// and stretched, so the foot (its front) ends up trailing furthest behind.
-// The mesh is one shell with the thighs joined to the body, so the leg can't
-// be cut free and turned; folding it this way keeps the surface whole.
-// Mirrored faces show their back, so the frog is drawn double-sided and its
-// normals are mirrored to match.
+// Frog: two Meshy models, like two keyframes. The sitting frog (front view)
+// squashes on the pads; in the air it's swapped for the same frog stretched
+// out mid-leap (a side view, which Meshy turned to face +Z), tipped to follow
+// the arc. The frog mesh is one shell, so bending its folded legs out in a
+// shader smeared them; a second pose looks far better.
 // ---------------------------------------------------------------------------
 
 async function frog() {
-  const { group, box, size } = bake(await load('frog'));
+  const [sitting, leaping] = await Promise.all([load('frog'), load('frog-leap')]);
+  const { group, box, size } = bake(sitting);
   const scale = 0.6 / size.y;
   group.scale.setScalar(scale);
   group.position.set(-(box.min.x + size.x / 2) * scale, -box.min.y * scale, -(box.min.z + size.z / 2) * scale);
-  group.traverse((o) => { if (o.isMesh) o.material.side = THREE.DoubleSide; });
   const squash = new THREE.Group();
   squash.add(group);
+  const leap = bake(leaping);
+  const leapScale = (size.z * scale * 2.4) / leap.size.z; // legs out, about 2.4 times as long
+  leap.group.scale.setScalar(leapScale);
+  leap.group.position.copy(leap.box.getCenter(new THREE.Vector3()).multiplyScalar(-leapScale));
+  const pitch = new THREE.Group(); // turns about the body's middle
+  pitch.position.y = 0.25;
+  pitch.add(leap.group);
   const frog = new THREE.Group();
-  frog.add(squash);
-  const u = {
-    uLeg: { value: 0 }, uMinY: { value: box.min.y }, uH: { value: size.y },
-    uCX: { value: box.min.x + size.x / 2 }, uHalfX: { value: size.x / 2 }, uMinZ: { value: box.min.z }, uD: { value: size.z },
-  };
-  const head = `
-    // How much of a hind leg this vertex is (low and out at the sides; the
-    // front feet are nearer the middle) times how far the legs are out.
-    float legWeight(vec3 p) {
-      float side = smoothstep(0.5, 0.65, abs(p.x - uCX) / uHalfX);
-      float low = 1.0 - smoothstep(0.35, 0.5, (p.y - uMinY) / uH);
-      return side * low * uLeg;
-    }
-    float hipZ() { return uMinZ + uD * 0.3; }
-    // The front-to-back scale about the hip: in front of it the leg is
-    // mirrored behind (negative), behind it the leg is stretched.
-    float legScale(vec3 p) {
-      return mix(1.0, p.z > hipZ() ? -1.6 : 1.6, legWeight(p));
-    }
-  `;
-  deform(group, 'frog', u, `
-    float w = legWeight(position);
-    float reach = position.z - hipZ();
-    float hipY = uMinY + uH * 0.3;
-    transformed.z = hipZ() + reach * legScale(position);
-    transformed.y = mix(position.y, hipY + (position.y - hipY) * 0.8 - abs(reach) * 0.06, w);
-    transformed.x = mix(position.x, uCX + (position.x - uCX) * 0.85, w);
-  `, {
-    head,
-    // Normals of a surface scaled by s along z: (x, y, z / s). Where s < 0 the
-    // faces flip, and three.js negates normals of back faces, so pre-negate.
-    normal: `
-      float s = legScale(position);
-      float sa = sign(s) * max(abs(s), 0.25);
-      objectNormal = sign(s) * vec3(objectNormal.x, objectNormal.y, objectNormal.z / sa);
-    `,
-  });
+  frog.add(squash, pitch);
   const scene = baseScene(0x9fd0c8, 0x2f5a3a, [6, 20]);
   const water = new THREE.Mesh(new THREE.CircleGeometry(14, 40), new THREE.MeshStandardMaterial({ color: 0x2f6f73, roughness: 0.25, metalness: 0.1 }));
   water.rotation.x = -Math.PI / 2;
@@ -327,7 +292,7 @@ async function frog() {
   camera.lookAt(0, 0, 0);
   const HOP = 1.7;
   panels.push({
-    name: 'Tree frog', how: 'Meshy model · hops, squash and leg kicks in a vertex shader', scene, camera, zoom: 1.3,
+    name: 'Tree frog', how: 'Two Meshy models (sitting, leaping) · squash and hops in code', scene, camera, zoom: 1.3,
     update(t) {
       const n = Math.floor(t / HOP);
       const f = (t % HOP) / HOP;
@@ -335,15 +300,19 @@ async function frog() {
       const to = pads[(n + 1) % pads.length];
       const dir = to.clone().sub(from);
       frog.rotation.y = Math.atan2(dir.x, dir.z);
-      let k = 0, sy = 1, leg = 0;
+      let k = 0, sy = 1;
       if (f < 0.3) { sy = 1 - 0.18 * Math.sin((f / 0.3) * Math.PI / 2); }
-      else if (f < 0.7) { k = (f - 0.3) / 0.4; sy = 1.18 - 0.18 * k; leg = Math.sin(k * Math.PI); }
+      else if (f < 0.7) { k = (f - 0.3) / 0.4; sy = 1.18 - 0.18 * k; }
       else if (f < 0.82) { k = 1; sy = 1 - 0.15 * Math.sin(((f - 0.7) / 0.12) * Math.PI); }
       else { k = 1; sy = 1 + 0.015 * Math.sin(t * 9); }
       frog.position.lerpVectors(from, to, k);
       frog.position.y += Math.sin(Math.min(k, 1) * Math.PI) * (f < 0.7 ? 0.6 : 0);
       squash.scale.set(1 / Math.sqrt(sy), sy, 1 / Math.sqrt(sy));
-      u.uLeg.value = leg;
+      // In the air: the leaping pose, nose up on the way up, down on the way down.
+      const flying = f >= 0.3 && f < 0.7 && k > 0.06 && k < 0.94;
+      squash.visible = !flying;
+      pitch.visible = flying;
+      pitch.rotation.x = -0.22 * Math.cos(k * Math.PI);
       camera.lookAt(frog.position.x * 0.6, 0.2 + frog.position.y * 0.5, frog.position.z * 0.6);
     },
   });

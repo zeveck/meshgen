@@ -19,7 +19,7 @@ It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 ## See it
 
 <a href="https://zeveck.github.io/meshgen/mage/">
-  <img src="examples/mage/front.png" alt="A spiky-haired mage in a tall-collared coat and sunglasses with one purple and one red lens, raising a flaming sword, a crystal staff in his other hand" width="100%">
+  <img src="examples/mage/front.png" alt="A mage with spiky hair half purple and half red, sunglasses to match and a tall-collared coat, raising a flaming sword, a crystal staff in his other hand" width="100%">
 </a>
 
 **[Play the Mage Playground](https://zeveck.github.io/meshgen/mage/)** in
@@ -28,7 +28,7 @@ your browser (keyboard and mouse), or see
 sword came from three imagegen2 concept pictures and these meshgen commands:
 
 ```
-/meshgen character mage --image concepts/mage.png --height 1.75 --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave --texture-prompt "Round sunglasses with one vivid purple lens and one vivid red lens. Black spiky hair. Tall navy stand-up collar with gold trim."
+/meshgen character mage --image concepts/mage.png --height 1.75 --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave --texture-prompt "Spiky hair split down the middle: the half on the same side as the purple lens is vivid purple, the other half vivid red, front and back. Round sunglasses with one vivid purple lens and one vivid red lens. Tall navy stand-up collar with gold trim."
 /meshgen model staff --image concepts/staff.png --height 1.6
 /meshgen model sword --image concepts/sword.png --height 1.0
 ```
@@ -51,7 +51,7 @@ in a few lines of shader code, like these four from the
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flying past clouds" width="100%"></a></td>
   </tr>
   <tr>
-    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/frog.gif" alt="A tree frog hopping between lily pads" width="100%"></a></td>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/frog.gif" alt="A tree frog leaping between lily pads, legs stretched out behind" width="100%"></a></td>
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/cat.gif" alt="A tabby cat trotting" width="100%"></a></td>
   </tr>
 </table>

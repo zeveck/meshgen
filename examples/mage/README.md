@@ -1,9 +1,9 @@
 # Mage Playground
 
 A small three.js scene built from four meshgen commands: a spiky-haired mage
-with one purple and one red sunglass lens, a crystal staff, and a sword that
-burns. Topple the training dummies with the sword, fireballs and an arcane
-nova.
+whose hair and sunglass lenses are half purple and half red, a crystal staff,
+and a sword that burns. Topple the training dummies with the sword, fireballs
+and an arcane nova.
 
 Play it at https://zeveck.github.io/meshgen/mage/, or run it from this folder with any static server, for example
 `python3 -m http.server 8790`, then open http://localhost:8790.
@@ -25,7 +25,7 @@ The pictures in `concepts/` came from imagegen2. Then:
 ```bash
 meshgen character mage --image concepts/mage.png --height 1.75 \
   --actions idle,walk,run,jump,slash,cast,spell=129,hit,die,dodge,wave \
-  --texture-prompt "Round sunglasses with one vivid purple lens and one vivid red lens. Black spiky hair. Tall navy stand-up collar with gold trim."
+  --texture-prompt "Spiky hair split down the middle: the half on the same side as the purple lens is vivid purple, the other half vivid red, front and back. Round sunglasses with one vivid purple lens and one vivid red lens. Tall navy stand-up collar with gold trim."
 meshgen model staff --image concepts/staff.png --height 1.6
 meshgen model sword --image concepts/sword.png --height 1.0
 meshgen remesh staff
