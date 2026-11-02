@@ -1,6 +1,6 @@
 {
   "name": "meshgen",
-  "version": "2026.11.1.5",
+  "version": "2026.11.2",
   "private": true,
   "type": "module",
   "description": "Claude Code skill and zero-dependency CLI for 3D game assets with Meshy: models, rigs, animations and previews",

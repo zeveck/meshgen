@@ -217,6 +217,11 @@ Plus:
   [`printing.md`](skills/meshgen/printing.md) about millimeters, solid
   shapes, overhangs and Meshy's repair, multi-color and split steps, and
   skips the rigging and engine advice.
+- **Creatures that move well.** Meshy rigs only humanoids. To animate an
+  animal or monster, the agent reads
+  [`animating.md`](skills/meshgen/animating.md): plan the motion as key
+  poses, turn wings and tails about their joints, make poses the mesh can't
+  reach as separate models, and check the result from more than one angle.
 - **Zero dependencies.** Node's built-in `fetch`, `zlib` and
   `process.loadEnvFile`; three.js 0.186.1 (MIT) is vendored for previews.
 
@@ -233,7 +238,7 @@ versus animating in code.
 | `--image <path or url>` | A reference picture; repeat for side and back views (front first) |
 | `--texture-prompt <text>` | Extra guidance for the textures |
 | `--draft` | Cheaper and rougher |
-| `--height <meters>` | How tall the character or model is |
+| `--height <meters>` | How tall the character or model is (without it, a model keeps Meshy's size) |
 | `--polycount <n>` | Triangles; defaults are 30,000 for characters and 10,000 for models |
 | `--topology <t>` | `triangle` or `quad` |
 | `--pose <p>` | `a-pose`, `t-pose` or `none` |

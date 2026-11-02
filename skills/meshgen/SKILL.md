@@ -10,9 +10,10 @@ argument-hint: <what to make> [--image picture.png] [--actions idle,walk,run,...
 
 meshgen turns a description or a picture into a 3D model with Meshy, and can
 rig and animate humanoid characters. Each asset ends up as one GLB file with
-all its animation clips, sized in meters. Models stand on the ground (y = 0),
-and Meshy's characters face +Z. That's what three.js, Godot and most engines
-expect; the preview sheet and the JSON `warnings` show when something is off.
+all its animation clips, in meters (`--height` sets the size). Models stand
+on the ground (y = 0), and Meshy's characters face +Z. That's what three.js,
+Godot and most engines expect; the preview sheet and the JSON `warnings` show
+when something is off.
 
 The CLI sits next to this file:
 
@@ -29,6 +30,10 @@ Ask the user questions in plain words in your reply. Never use a question tool.
 `${CLAUDE_SKILL_DIR}/printing.md` first and follow it instead of the game
 advice below: prints need millimeters, full detail, solid printable shapes
 and no rig.
+
+**To animate a model without a humanoid rig** (an animal, monster or
+creature to swim, fly, hop or walk), read `${CLAUDE_SKILL_DIR}/animating.md`
+before writing the motion code.
 
 ## Costs
 
@@ -78,7 +83,7 @@ words you used.
 
 - Rigging works on **two-legged humanoids** with clear arms and legs. For
   animals, creatures, vehicles and props, make a plain `model` and animate it
-  in the game's code (see reference.md). `--quadruped` asks Meshy for a
+  in the game's code (see animating.md). `--quadruped` asks Meshy for a
   four-legged rig with a walk clip. It is experimental: in our test (a cat)
   Meshy's rig came back about 60 times too small (meshgen rescales that) and
   its walk clip was unusable, so check the preview before relying on it.
@@ -102,7 +107,9 @@ node ${CLAUDE_SKILL_DIR}/meshgen.cjs model treasure-chest --prompt "wooden treas
 node ${CLAUDE_SKILL_DIR}/meshgen.cjs model sword --image concepts/sword.png --height 1.0
 ```
 
-`--height` scales the model in meters. Models come out game-sized: 10,000
+`--height` scales the model in meters; give one for every game asset, since
+without it a model keeps whatever size Meshy picked. Either way it stands on
+the ground. Models come out game-sized: 10,000
 triangles for props, 30,000 for characters. Change it with `--polycount`, or
 later with `remesh` (5 credits).
 

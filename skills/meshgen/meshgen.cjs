@@ -37,7 +37,7 @@ const { execFile } = require("child_process");
 })();
 
 // Date-based release version; keep in sync with package.json (tests check).
-const MESHGEN_VERSION = "2026.11.1.5";
+const MESHGEN_VERSION = "2026.11.2";
 
 // MESHGEN_API_BASE exists for the offline tests, which run a fake Meshy.
 const API_BASE = (process.env.MESHGEN_API_BASE || "https://api.meshy.ai").replace(/\/$/, "");
@@ -960,8 +960,9 @@ function buildFinal(ctx) {
       m.notes = [`Meshy's rig was ${measured} m tall, so meshgen scaled it to ${target} m.`];
     }
   } else {
-    glb = fs.readFileSync(path.join(ctx.dir, "source", "model.glb"));
-    if (m.request.height) glb = scaleToHeight(glb, m.request.height);
+    // Meshy centers models on the origin; every model stands on the ground,
+    // and --height also scales it.
+    glb = scaleToHeight(fs.readFileSync(path.join(ctx.dir, "source", "model.glb")), m.request.height);
   }
   const maxTexture = m.request.maxTexture === undefined ? DEFAULT_MAX_TEXTURE : m.request.maxTexture;
   if (maxTexture) {
@@ -1292,13 +1293,15 @@ function mergeClips(baseBuf, clips, { inPlace = true } = {}) {
 
 // Puts the scene under one new root node, scaled to the given height and
 // standing on y=0.
+// Scales the scene to `height` meters (kept as it is with no height) and
+// stands it on the ground.
 function scaleToHeight(buf, height) {
   const { lo, hi } = inspectGlb(buf).exact;
   const current = hi[1] - lo[1];
   if (!Number.isFinite(current) || current <= 0) return buf;
   const gltf = parseGlb(buf);
   const json = gltf.json;
-  const s = height / current;
+  const s = height ? height / current : 1;
   const sceneIndex = json.scene || 0;
   const scene = json.scenes[sceneIndex];
   json.nodes.push({ name: "meshgen_root", scale: [s, s, s], translation: [0, -lo[1] * s, 0], children: scene.nodes });

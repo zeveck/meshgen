@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.11.2
+
+- A model made without `--height` now stands on the ground, at the size Meshy made it. Before, it stayed centered on the origin, half underground (#7). To fix an existing one, run `meshgen rebuild <name>` (free).
+- New guide, `animating.md`, which the skill reads when you want an animal or monster to move (#8). It covers planning the motion as key poses, turning wings and tails about their joints instead of stretching them, making poses the mesh can't reach as separate models, and checking from more than one angle. The Creature Showcase's frog and dragon taught these.
+
 ## 2026.11.1.5
 
 - Simpler handling of a rig Meshy has deleted (#6). `animate` no longer rigs again by itself: it stops before spending anything and says to run `meshgen rig <name>`, which rigs again and remakes all the character's paid clips in one job. A rerun after a timeout picks up the same job.

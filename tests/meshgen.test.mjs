@@ -22,7 +22,7 @@ const meshgen = require(SCRIPT);
 
 // A one-triangle mesh skinned to Hips > Spine, 1 m tall, plus clips that move
 // Hips forward along +Z (root motion) and bob it up and down.
-function makeGlb({ clips = [], height = 1, armatureScale = 1 } = {}) {
+function makeGlb({ clips = [], height = 1, armatureScale = 1, floor = 0 } = {}) {
   const parts = [];
   let length = 0;
   const views = [];
@@ -35,7 +35,7 @@ function makeGlb({ clips = [], height = 1, armatureScale = 1 } = {}) {
     accessors.push({ bufferView: views.length - 1, ...acc });
     return accessors.length - 1;
   }
-  const pos = add(new Float32Array([-0.2, 0, 0, 0.2, 0, 0, 0, height, 0]), { componentType: 5126, count: 3, type: 'VEC3', min: [-0.2, 0, 0], max: [0.2, height, 0] });
+  const pos = add(new Float32Array([-0.2, floor, 0, 0.2, floor, 0, 0, floor + height, 0]), { componentType: 5126, count: 3, type: 'VEC3', min: [-0.2, floor, 0], max: [0.2, floor + height, 0] });
   const joints = add(new Uint16Array([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), { componentType: 5123, count: 3, type: 'VEC4' });
   const weights = add(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), { componentType: 5126, count: 3, type: 'VEC4' });
   const s = 1 / armatureScale;
@@ -192,10 +192,10 @@ test('scaleToHeight scales the scene and stands it on the ground', () => {
 
 // --- End to end against a fake Meshy ------------------------------------------
 
-function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75, onPost = null } = {}) {
+function fakeMeshy({ failRig = false, slow = false, rigHeight = 1.75, onPost = null, modelFloor = 0 } = {}) {
   const state = { balance: 1000, posts: [], tasks: new Map(), polls: 0, slow, filesGone: false };
   const files = {
-    '/files/model.glb': makeGlb({ height: 1.6 }),
+    '/files/model.glb': makeGlb({ height: 1.6, floor: modelFloor }),
     '/files/rigged.glb': makeGlb({ height: rigHeight }),
     '/files/walk.glb': makeGlb({ clips: ['Walking'] }),
     '/files/run.glb': makeGlb({ clips: ['Running'] }),
@@ -571,6 +571,27 @@ test('a busy Meshy respects --wait', async () => {
   } finally {
     fake.server.close();
   }
+});
+
+test('a model made without --height keeps its size and stands on the ground', async () => {
+  const fake = await fakeMeshy({ modelFloor: -0.8 }); // centered, as Meshy sends them
+  const cwd = tempProject();
+  try {
+    const r = await run(['model', 'barrel', '--prompt', 'a wooden barrel', '--no-history'], { cwd, base: fake.base });
+    assert.equal(r.code, 0, JSON.stringify(r.json));
+    const info = meshgen.inspectGlb(fs.readFileSync(path.join(cwd, r.json.file)));
+    assert.equal(info.height, 1.6);
+    assert.equal(info.min[1], 0);
+    assert.ok(!r.json.warnings.some((w) => /ground/.test(w)), r.json.warnings.join(' '));
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('scaleToHeight with no height keeps the size and stands it on the ground', () => {
+  const info = meshgen.inspectGlb(meshgen.scaleToHeight(makeGlb({ height: 0.7, floor: -0.35 })));
+  assert.equal(info.height, 0.7);
+  assert.equal(info.min[1], 0);
 });
 
 test('scaleToHeight is exact for tiny rigs and stands them on the ground', () => {
