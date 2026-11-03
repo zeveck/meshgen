@@ -5,9 +5,10 @@ animations) from a single [Claude Code](https://github.com/anthropics/claude-cod
 skill, backed by the [Meshy](https://www.meshy.ai) API. Describe a model or
 hand it a picture, and you get one GLB per asset, with every animation clip
 inside, sized in meters and ready for three.js, Godot and most other
-engines. It also makes STL and 3MF files for 3D printing. Zero npm deps:
-usable as a `/meshgen` slash command inside an agent, or as a standalone Node
-CLI from your terminal.
+engines. It also makes STL and 3MF files for 3D printing. There are no npm
+packages to install; you need Node 20.12+ and a Meshy API key. Use it as a
+`/meshgen` slash command inside an agent, or as a standalone Node CLI from
+your terminal.
 
 It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 [anim8gen](https://github.com/zeveck/anim8gen),
@@ -222,8 +223,9 @@ Plus:
   [`animating.md`](skills/meshgen/animating.md): plan the motion as key
   poses, turn wings and tails about their joints, make poses the mesh can't
   reach as separate models, and check the result from more than one angle.
-- **Zero dependencies.** Node's built-in `fetch`, `zlib` and
-  `process.loadEnvFile`; three.js 0.186.1 (MIT) is vendored for previews.
+- **No packages to install.** It uses only Node's built-ins (`fetch`, `zlib`,
+  `process.loadEnvFile`) and ships three.js 0.186.1 (MIT) for previews. You
+  need Node 20.12 or later and a Meshy API key on a paid plan.
 
 See [`SKILL.md`](skills/meshgen/SKILL.md) for how the agent uses it, and
 [`reference.md`](skills/meshgen/reference.md) for loading the GLBs in
@@ -308,8 +310,8 @@ built in the tests, so they spend no credits. CI runs them on every push.
 
 Shape and spirit borrowed from
 [imagegen2](https://github.com/zeveck/imagegen2) and
-[audiogen](https://github.com/zeveck/audiogen): a zero-dep, single-folder
-skill with a Node CLI that prints JSON. meshgen's `.env` walker mirrors
+[audiogen](https://github.com/zeveck/audiogen): a single-folder skill with no
+npm packages and a Node CLI that prints JSON. meshgen's `.env` walker mirrors
 imagegen2's. The Mage Playground's concept pictures came from imagegen2.
 
 ## License
