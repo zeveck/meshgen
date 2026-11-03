@@ -160,7 +160,14 @@ function seeded(seed) {
   return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 }
 
-const DRAGON_LOOP = 5.6; // seconds: four wingbeats, one weave, clouds wrap
+// The loop: fly across, turn to the camera and rear up into the picture's
+// own upright pose, lift the head and breathe fire, then fly on.
+const DRAGON_LOOP = 8.4; // seconds: six wingbeats
+const FIRE = [5.0, 6.1]; // when the flame starts and stops
+const smooth = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+// How far into the upright hover the dragon is, 0 (flying) to 1.
+const hoverAt = (t) => smooth(2.8, 4.0, t) * (1 - smooth(6.9, 7.9, t));
+const headAt = (t) => smooth(4.4, 5.0, t) * (1 - smooth(6.6, 7.1, t));
 
 async function dragon() {
   const { group, box, size } = bake(await load('dragon'));
@@ -168,16 +175,30 @@ async function dragon() {
   group.scale.setScalar(scale);
   group.position.set(-(box.min.x + size.x / 2) * scale, -(box.min.y + size.y / 2) * scale, -(box.min.z + size.z / 2) * scale);
   const tilt = new THREE.Group();
-  tilt.rotation.x = Math.PI / 2 - 0.1; // belly down, head a touch up
   tilt.add(group);
   const bank = new THREE.Group();
   bank.add(tilt);
   const dragon = new THREE.Group();
   dragon.add(bank);
   const centerX = box.min.x + size.x / 2;
+  // The head sits above the neck in the middle; its snout is the frontmost
+  // point there, where the flame comes out.
+  const neckY = box.min.y + size.y * 0.68;
+  const headHalf = size.x * 0.08;
+  const snout = new THREE.Vector3(centerX, neckY, -Infinity);
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      if (y > neckY && Math.abs(x - centerX) < headHalf * 0.6 && z > snout.z) snout.set(x, y, z);
+    }
+  });
+  const pivotZ = box.min.z + size.z / 2;
   const u = {
     uTime: { value: 0 }, uCenterX: { value: centerX }, uBody: { value: size.x * 0.1 },
     uHalf: { value: size.x / 2 }, uMinY: { value: box.min.y }, uHeight: { value: size.y },
+    uHead: { value: 0 }, uNeckY: { value: neckY }, uHeadHalf: { value: headHalf }, uPivotZ: { value: pivotZ },
   };
   deform(group, 'dragon', u, `
     float side = sign(position.x - uCenterX);
@@ -193,6 +214,12 @@ async function dragon() {
     transformed.z = mix(position.z, position.z - r * sin(angle), w);
     float tail = clamp((uMinY + uHeight * 0.35 - position.y) / (uHeight * 0.35), 0.0, 1.0);
     transformed.x += sin(phase * 0.5 - tail * 3.0) * tail * tail * uHeight * 0.1;
+    // The head tips back about the neck, snout up.
+    float head = smoothstep(uNeckY - uHeight * 0.04, uNeckY + uHeight * 0.04, position.y)
+      * (1.0 - smoothstep(uHeadHalf * 0.9, uHeadHalf * 1.3, abs(position.x - uCenterX)));
+    float lift = -0.3 * uHead * head;
+    vec2 yz = transformed.yz - vec2(uNeckY, uPivotZ);
+    transformed.yz = vec2(uNeckY, uPivotZ) + vec2(yz.x * cos(lift) - yz.y * sin(lift), yz.x * sin(lift) + yz.y * cos(lift));
   `);
   const scene = baseScene(0x9cc7ee, 0x9aa6b8, [14, 40]);
   scene.background = skyTexture('#3f7fcf', '#cfe4f7');
@@ -220,31 +247,91 @@ async function dragon() {
     clouds.push(cloud);
     scene.add(cloud);
   }
+  // The clouds slow down while it hovers: how far they've come by time t,
+  // as a share of one wrap per loop.
+  const steps = 840;
+  const travel = [0];
+  for (let i = 1; i <= steps; i++) travel.push(travel[i - 1] + 1 - 0.85 * hoverAt((i / steps) * DRAGON_LOOP));
+  const travelAt = (t) => travel[Math.round(((t % DRAGON_LOOP) / DRAGON_LOOP) * steps)] / travel[steps];
+
+  // Fire: soft sprites (normal blending, so they stay orange against the bright
+  // sky), each with its own place in a repeating
+  // stream, so any moment can be drawn on its own (no state between frames).
+  const FLAMES = 60, RATE = 60, LIFE = 0.6;
+  const flames = [];
+  for (let i = 0; i < FLAMES; i++) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: puff, color: 0xffaa33, transparent: true, depthWrite: false }));
+    sprite.userData = { jitter: new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5) };
+    flames.push(sprite);
+    scene.add(sprite);
+  }
+  const glow = new THREE.PointLight(0xff8a2a, 0, 6, 2);
+  scene.add(glow);
+  const mouth = new THREE.Vector3();
+  const aim = new THREE.Vector3();
+  const color = new THREE.Color();
+  const HOT = new THREE.Color(0xffe070), WARM = new THREE.Color(0xff5a10), SMOKE = new THREE.Color(0x5a4a48);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 80);
   const look = new THREE.Vector3();
+  const fly = new THREE.Vector3();
   panels.push({
-    name: 'Dragon', how: 'Meshy model · wingbeats and tail sway in a vertex shader', scene, camera, zoom: 1.1,
-    update(t) {
-      u.uTime.value = t;
+    name: 'Dragon', how: 'Meshy model · wingbeats, head and flight in a vertex shader; fire in sprites', scene, camera, zoom: 1.1,
+    update(time) {
+      const t = time % DRAGON_LOOP;
+      u.uTime.value = time;
+      const h = hoverAt(t);
+      u.uHead.value = headAt(t);
       const a = (t / DRAGON_LOOP) * Math.PI * 2;
-      // A lazy weave and bob. It flies toward the camera (+Z), which backs
-      // away in front of it, so the clouds stream off behind.
-      dragon.position.set(Math.sin(a) * 1.4, Math.sin(a * 2) * 0.25 + Math.sin(t * 4.488 + 1.4) * 0.08, 0);
-      dragon.rotation.y = Math.cos(a) * 0.35;
-      bank.rotation.z = -0.55 - Math.cos(a) * 0.25; // rolled toward the camera
-      // Clouds move -Z, one wrap per loop.
+      // Flying: a lazy weave and bob toward +Z. Hovering: a little closer,
+      // upright and turned three-quarters to the camera.
+      fly.set(Math.sin(a) * 1.4, Math.sin(a * 2) * 0.25, 0);
+      dragon.position.lerpVectors(fly, new THREE.Vector3(0.3, 0.15, 0.4), h);
+      dragon.position.y += Math.sin(time * 4.488 + 1.4) * 0.08;
+      camera.position.set(dragon.position.x * 0.4 + 3.6, 1.6, 2.6);
+      const toCamera = Math.atan2(camera.position.x - dragon.position.x, camera.position.z - dragon.position.z);
+      dragon.rotation.y = THREE.MathUtils.lerp(Math.cos(a) * 0.35, toCamera - 0.5, h);
+      tilt.rotation.x = THREE.MathUtils.lerp(Math.PI / 2 - 0.1, -0.15, h); // belly down, or reared up
+      bank.rotation.z = (1 - h) * (-0.55 - Math.cos(a) * 0.25); // rolled toward the camera in flight
       for (const c of clouds) {
         const { x, y, z0 } = c.userData;
-        const z = 4 - ((z0 + (t / DRAGON_LOOP) * 40) % 40);
+        const z = 4 - ((z0 + travelAt(t) * 40) % 40);
         c.position.set(x, y, z);
         // Fade in far away and out before reaching the camera.
         const fade = Math.min(1, (z + 36) / 6, (4 - z) / 4);
         c.children.forEach((sp) => { sp.material.opacity = fade * (y < 0 ? 0.95 : 0.7); });
       }
-      camera.position.set(dragon.position.x * 0.4 + 3.6, 1.6, 2.6);
-      look.set(dragon.position.x * 0.7, dragon.position.y - 0.2, 0);
+      look.set(dragon.position.x * 0.7, dragon.position.y - 0.2 + h * 0.35, 0);
       camera.lookAt(look);
+
+      // The flame leaves the snout along the head's facing, tipped up by the lift.
+      dragon.updateMatrixWorld(true);
+      const lift = 0.3 * u.uHead.value;
+      const rel = snout.clone().sub(new THREE.Vector3(centerX, neckY, pivotZ));
+      mouth.set(rel.x, rel.y * Math.cos(-lift) - rel.z * Math.sin(-lift), rel.y * Math.sin(-lift) + rel.z * Math.cos(-lift))
+        .add(new THREE.Vector3(centerX, neckY, pivotZ));
+      group.localToWorld(mouth);
+      aim.set(0, Math.sin(lift), Math.cos(lift)).transformDirection(group.matrixWorld);
+      const period = FLAMES / RATE;
+      let lit = 0;
+      flames.forEach((f, i) => {
+        const born = FIRE[0] + i / RATE + period * Math.floor((t - FIRE[0] - i / RATE) / period);
+        const age = t - born;
+        const on = born >= FIRE[0] && born <= FIRE[1] && age >= 0 && age < LIFE;
+        f.visible = on;
+        if (!on) return;
+        lit++;
+        const k = age / LIFE;
+        f.position.copy(mouth).addScaledVector(aim, age * 3.4).addScaledVector(f.userData.jitter, age * 0.8);
+        f.position.y += age * age * 0.4;
+        const s = 0.08 + age * 0.8;
+        f.scale.set(s, s, 1);
+        color.copy(HOT).lerp(WARM, Math.min(1, k * 2.5)).lerp(SMOKE, Math.max(0, k - 0.6) * 2.5);
+        f.material.color.copy(color);
+        f.material.opacity = 0.9 * (1 - k * k);
+      });
+      glow.position.copy(mouth).addScaledVector(aim, 0.6);
+      glow.intensity = lit ? 3 + Math.sin(time * 37) * 0.8 : 0;
     },
   });
 }

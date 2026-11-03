@@ -49,7 +49,7 @@ in a few lines of shader code, like these four from the
 <table>
   <tr>
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/betta.gif" alt="A betta fish swimming" width="100%"></a></td>
-    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flying past clouds" width="100%"></a></td>
+    <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/dragon.gif" alt="A green dragon flies past clouds, rears up facing the camera and breathes fire" width="100%"></a></td>
   </tr>
   <tr>
     <td><a href="https://zeveck.github.io/meshgen/creatures/"><img src="examples/media/frog.gif" alt="A tree frog leaping between lily pads, legs stretched out behind" width="100%"></a></td>

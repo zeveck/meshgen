@@ -1,10 +1,12 @@
 # Creature Showcase
 
 Four Meshy models brought to life in code: a betta fish swimming, a dragon
-flying, a tree frog hopping across lily pads, and a cat trotting. None of them
-has a skeleton. The animation is a few lines of vertex shader each, plus
-paths, squash and stretch, in `showcase.js`. The frog uses two models, one
-sitting and one leaping, swapped like keyframes when it takes off and lands.
+flying and breathing fire, a tree frog hopping across lily pads, and a cat
+trotting. None of them has a skeleton. The animation is a few lines of vertex
+shader each, plus paths, squash and stretch, in `showcase.js`. The frog uses
+two models, one sitting and one leaping, swapped like keyframes when it takes
+off and lands. The dragon rears up into the upright pose its picture was
+drawn in, so its face shows when it breathes fire.
 
 Play it at https://zeveck.github.io/meshgen/creatures/, or serve the
 `examples` folder (this page borrows the mage example's three.js) with
