@@ -160,13 +160,13 @@ function seeded(seed) {
   return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 }
 
-// The loop: fly across, turn to the camera and rear up into the picture's
-// own upright pose, lift the head and breathe fire, then fly on.
+// The loop: fly across, bank in toward the camera with the head up and
+// breathe fire, then swing away and fly on. It never stops flying.
 const DRAGON_LOOP = 8.4; // seconds: six wingbeats
 const FIRE = [5.0, 6.1]; // when the flame starts and stops
 const smooth = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
-// How far into the upright hover the dragon is, 0 (flying) to 1.
-const hoverAt = (t) => smooth(2.8, 4.0, t) * (1 - smooth(6.9, 7.9, t));
+// How far into the swoop toward the camera the dragon is, 0 to 1.
+const swoopAt = (t) => smooth(2.8, 4.0, t) * (1 - smooth(6.9, 7.9, t));
 const headAt = (t) => smooth(4.4, 5.0, t) * (1 - smooth(6.6, 7.1, t));
 
 async function dragon() {
@@ -181,8 +181,8 @@ async function dragon() {
   const dragon = new THREE.Group();
   dragon.add(bank);
   const centerX = box.min.x + size.x / 2;
-  // The head sits above the neck in the middle; its snout is the frontmost
-  // point there, where the flame comes out.
+  // The head sits above the neck in the middle. Its frontmost point is the
+  // nose; the mouth is a little below and behind it, where the flame starts.
   const neckY = box.min.y + size.y * 0.68;
   const headHalf = size.x * 0.08;
   const snout = new THREE.Vector3(centerX, neckY, -Infinity);
@@ -194,6 +194,8 @@ async function dragon() {
       if (y > neckY && Math.abs(x - centerX) < headHalf * 0.6 && z > snout.z) snout.set(x, y, z);
     }
   });
+  snout.y -= size.y * 0.03;
+  snout.z -= size.z * 0.04;
   const pivotZ = box.min.z + size.z / 2;
   const u = {
     uTime: { value: 0 }, uCenterX: { value: centerX }, uBody: { value: size.x * 0.1 },
@@ -247,12 +249,6 @@ async function dragon() {
     clouds.push(cloud);
     scene.add(cloud);
   }
-  // The clouds slow down while it hovers: how far they've come by time t,
-  // as a share of one wrap per loop.
-  const steps = 840;
-  const travel = [0];
-  for (let i = 1; i <= steps; i++) travel.push(travel[i - 1] + 1 - 0.85 * hoverAt((i / steps) * DRAGON_LOOP));
-  const travelAt = (t) => travel[Math.round(((t % DRAGON_LOOP) / DRAGON_LOOP) * steps)] / travel[steps];
 
   // Fire: soft sprites (normal blending, so they stay orange against the bright
   // sky), each with its own place in a repeating
@@ -276,32 +272,34 @@ async function dragon() {
   const look = new THREE.Vector3();
   const fly = new THREE.Vector3();
   panels.push({
-    name: 'Dragon', how: 'Meshy model · wingbeats, head and flight in a vertex shader; fire in sprites', scene, camera, zoom: 1.1,
+    name: 'Dragon', how: 'Meshy model · wingbeats and head in a vertex shader; fire in sprites', scene, camera, zoom: 1.1,
     update(time) {
       const t = time % DRAGON_LOOP;
       u.uTime.value = time;
-      const h = hoverAt(t);
+      const h = swoopAt(t);
       u.uHead.value = headAt(t);
       const a = (t / DRAGON_LOOP) * Math.PI * 2;
-      // Flying: a lazy weave and bob toward +Z. Hovering: a little closer,
-      // upright and turned three-quarters to the camera.
+      // A lazy weave and bob toward +Z; in the swoop it pulls up and comes in
+      // closer, turned three-quarters to the camera and banked into the turn.
       fly.set(Math.sin(a) * 1.4, Math.sin(a * 2) * 0.25, 0);
-      dragon.position.lerpVectors(fly, new THREE.Vector3(0.3, 0.15, 0.4), h);
+      dragon.position.copy(fly).add(new THREE.Vector3(0.4 * h, 0.35 * h, 0.5 * h)); // keeps weaving
       dragon.position.y += Math.sin(time * 4.488 + 1.4) * 0.08;
-      camera.position.set(dragon.position.x * 0.4 + 3.6, 1.6, 2.6);
+      camera.position.set(dragon.position.x * 0.4 + 3.6, 1.6 - 0.9 * h, 2.6);
       const toCamera = Math.atan2(camera.position.x - dragon.position.x, camera.position.z - dragon.position.z);
-      dragon.rotation.y = THREE.MathUtils.lerp(Math.cos(a) * 0.35, toCamera - 0.5, h);
-      tilt.rotation.x = THREE.MathUtils.lerp(Math.PI / 2 - 0.1, -0.15, h); // belly down, or reared up
-      bank.rotation.z = (1 - h) * (-0.55 - Math.cos(a) * 0.25); // rolled toward the camera in flight
+      dragon.rotation.y = THREE.MathUtils.lerp(Math.cos(a) * 0.35, toCamera - 0.6, h);
+      // Belly down in flight. The face points the same way as the belly (the
+      // picture was face-on), so the swoop pulls up nearly upright to show it.
+      tilt.rotation.x = THREE.MathUtils.lerp(Math.PI / 2 - 0.1, 0.35, h);
+      bank.rotation.z = THREE.MathUtils.lerp(-0.55 - Math.cos(a) * 0.25, -0.35, h); // rolled toward the camera
       for (const c of clouds) {
         const { x, y, z0 } = c.userData;
-        const z = 4 - ((z0 + travelAt(t) * 40) % 40);
+        const z = 4 - ((z0 + (t / DRAGON_LOOP) * 40) % 40);
         c.position.set(x, y, z);
         // Fade in far away and out before reaching the camera.
         const fade = Math.min(1, (z + 36) / 6, (4 - z) / 4);
         c.children.forEach((sp) => { sp.material.opacity = fade * (y < 0 ? 0.95 : 0.7); });
       }
-      look.set(dragon.position.x * 0.7, dragon.position.y - 0.2 + h * 0.35, 0);
+      look.set(dragon.position.x * 0.7, dragon.position.y - 0.2 + h * 0.2, 0);
       camera.lookAt(look);
 
       // The flame leaves the snout along the head's facing, tipped up by the lift.
