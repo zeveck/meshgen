@@ -5,7 +5,7 @@ whose hair and sunglass lenses are half purple and half red, a crystal staff,
 and a sword that burns. Topple the training dummies with the sword, fireballs
 and an arcane nova.
 
-Play it at https://zeveck.github.io/meshgen/mage/, or run it from this folder with any static server, for example
+Play it at https://zeveck.github.io/meshgen/mage/ (keyboard and mouse, or touch), or run it from this folder with any static server, for example
 `python3 -m http.server 8790`, then open http://localhost:8790.
 
 | Keys | Action |
@@ -18,9 +18,15 @@ Play it at https://zeveck.github.io/meshgen/mage/, or run it from this folder wi
 | E, H, X | Wave, take a hit, collapse (X again to get up) |
 | Drag | Turn the camera |
 
+On a phone or tablet, a stick on the left walks (push it to the edge to run)
+and buttons on the right swing the sword, throw a fireball, cast the nova,
+jump and roll; "…" opens wave, hit and fall. Drag anywhere else to turn the
+camera.
+
 ## How it was made
 
-The pictures in `concepts/` came from imagegen2. Then:
+The pictures in `concepts/` came from imagegen2. The mage's prompt was based
+on an art piece by Derek Zielinski. Then:
 
 ```bash
 meshgen character mage --image concepts/mage.png --height 1.75 \

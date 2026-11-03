@@ -24,7 +24,7 @@ It's a sibling of [imagegen2](https://github.com/zeveck/imagegen2),
 </a>
 
 **[Play the Mage Playground](https://zeveck.github.io/meshgen/mage/)** in
-your browser (keyboard and mouse), or see
+your browser (keyboard and mouse, or touch on a phone), or see
 [all the demos](https://zeveck.github.io/meshgen/). The mage, staff and
 sword came from three imagegen2 concept pictures and these meshgen commands:
 
@@ -312,7 +312,8 @@ Shape and spirit borrowed from
 [imagegen2](https://github.com/zeveck/imagegen2) and
 [audiogen](https://github.com/zeveck/audiogen): a single-folder skill with no
 npm packages and a Node CLI that prints JSON. meshgen's `.env` walker mirrors
-imagegen2's. The Mage Playground's concept pictures came from imagegen2.
+imagegen2's. The Mage Playground's concept pictures came from imagegen2, from
+a prompt based on an art piece by Derek Zielinski.
 
 ## License
 
