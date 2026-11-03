@@ -1,5 +1,6 @@
 // Mage Playground: a meshgen character with a staff and a flaming sword,
-// driven by keyboard and mouse. Plain three.js, no build step.
+// driven by keyboard and mouse, or a stick and buttons on a touchscreen.
+// Plain three.js, no build step.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -23,8 +24,10 @@ const RUN_SPEED = 4.2;
 // Scene
 // ---------------------------------------------------------------------------
 
+// Phones get a lighter renderer: fewer pixels and a smaller shadow map.
+const coarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -45,7 +48,7 @@ scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x3a3020, 1.6));
 const sun = new THREE.DirectionalLight(0xfff1dd, 2.2);
 sun.position.set(6, 12, 4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(coarse ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 40 });
 scene.add(sun, sun.target);
 
@@ -385,11 +388,17 @@ function updateRings(dt) {
 const keys = new Set();
 const KEY_ACTIONS = { KeyJ: 'slash', KeyK: 'cast', KeyL: 'spell', Space: 'jump', KeyQ: 'dodge', KeyE: 'wave', KeyH: 'hit' };
 
+// X (or the Fall button) collapses, and again gets back up.
+function collapse() {
+  if (dead) { dead = false; oneShot = null; fadeTo(actions.idle, 0.6); } else play('die');
+}
+
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
+  setTouch(false);
   if (e.code === 'KeyX') {
-    if (dead) { dead = false; oneShot = null; fadeTo(actions.idle, 0.6); } else play('die');
+    collapse();
   } else if (KEY_ACTIONS[e.code]) {
     e.preventDefault();
     play(KEY_ACTIONS[e.code]);
@@ -403,18 +412,77 @@ let camDist = 5.5;
 let camHeight = 1.9;
 let drag = null;
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
-renderer.domElement.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, moved: 0, button: e.button }; });
+// Each drag follows its own pointer, so a thumb on the stick doesn't turn
+// the camera.
+renderer.domElement.addEventListener('pointerdown', (e) => { drag = { id: e.pointerId, x: e.clientX, moved: 0, button: e.button }; });
 addEventListener('pointermove', (e) => {
-  if (!drag) return;
+  if (!drag || e.pointerId !== drag.id) return;
   const dx = e.clientX - drag.x;
   drag.x = e.clientX;
   drag.moved += Math.abs(dx);
   camYaw -= dx * 0.006;
 });
-addEventListener('pointerup', () => {
-  if (drag && drag.moved < 6) play(drag.button === 2 ? 'cast' : 'slash');
+addEventListener('pointerup', (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (drag.moved < 6) play(drag.button === 2 ? 'cast' : 'slash');
   drag = null;
 });
+addEventListener('pointercancel', (e) => { if (drag && e.pointerId === drag.id) drag = null; });
+
+// Touch: a stick on the left (push to the edge to run) and buttons on the
+// right. They show on touchscreens; a key press switches back to the key
+// list, and a touch brings the buttons back.
+const touchUI = document.getElementById('touch');
+const stickEl = document.getElementById('stick');
+const knob = document.getElementById('knob');
+const stick = { id: null, x: 0, y: 0 };
+function setTouch(on) {
+  document.body.classList.toggle('touch', on);
+  touchUI.hidden = !on;
+}
+addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') setTouch(true); }, true);
+
+function moveStick(e) {
+  const r = stickEl.getBoundingClientRect();
+  const radius = r.width / 2;
+  let x = (e.clientX - r.left - radius) / radius;
+  let y = (e.clientY - r.top - radius) / radius;
+  const len = Math.hypot(x, y);
+  if (len > 1) { x /= len; y /= len; }
+  stick.x = x;
+  stick.y = y;
+  knob.style.transform = `translate(${x * radius * 0.6}px, ${y * radius * 0.6}px)`;
+}
+stickEl.addEventListener('pointerdown', (e) => {
+  stick.id = e.pointerId;
+  stickEl.setPointerCapture(e.pointerId);
+  moveStick(e);
+});
+stickEl.addEventListener('pointermove', (e) => { if (e.pointerId === stick.id) moveStick(e); });
+const releaseStick = (e) => {
+  if (e.pointerId !== stick.id) return;
+  stick.id = null;
+  stick.x = stick.y = 0;
+  knob.style.transform = '';
+};
+stickEl.addEventListener('pointerup', releaseStick);
+stickEl.addEventListener('pointercancel', releaseStick);
+
+for (const b of touchUI.querySelectorAll('button[data-action]')) {
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    b.classList.add('down');
+    if (b.dataset.action === 'collapse') collapse(); else play(b.dataset.action);
+  });
+  b.addEventListener('pointerup', () => b.classList.remove('down'));
+  b.addEventListener('pointercancel', () => b.classList.remove('down'));
+}
+document.getElementById('more').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const extras = document.getElementById('extras');
+  extras.hidden = !extras.hidden;
+});
+touchUI.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------------------------------------------------------------------------
 // Game loop
@@ -430,7 +498,12 @@ function update(dt) {
     0,
     (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
   );
-  const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  let running = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const pushed = Math.hypot(stick.x, stick.y);
+  if (pushed > 0.2) { // a small dead zone in the middle
+    input.set(stick.x, 0, -stick.y);
+    running ||= pushed > 0.85;
+  }
   const moving = input.lengthSq() > 0 && !dead;
 
   if (oneShot) {
@@ -491,7 +564,9 @@ function update(dt) {
   updateDummies(dt);
 
   camTarget.lerp(tmp.copy(mage.position).setY(1.2), Math.min(1, dt * 6));
-  camera.position.set(camTarget.x + Math.sin(camYaw) * camDist, camTarget.y + camHeight, camTarget.z + Math.cos(camYaw) * camDist);
+  // A tall, narrow screen sees less across, so the camera backs off to fit.
+  const fit = Math.sqrt(Math.max(1, 0.9 / camera.aspect));
+  camera.position.set(camTarget.x + Math.sin(camYaw) * camDist * fit, camTarget.y + camHeight * fit, camTarget.z + Math.cos(camYaw) * camDist * fit);
   camera.lookAt(camTarget);
   sun.position.copy(camTarget).add(new THREE.Vector3(6, 12, 4));
   sun.target.position.copy(camTarget);
@@ -500,6 +575,7 @@ function update(dt) {
 document.getElementById('loading').remove();
 document.getElementById('hud').hidden = false;
 document.getElementById('score').hidden = false;
+setTouch(coarse);
 camTarget.set(0, 1.2, 0);
 
 let paused = false;

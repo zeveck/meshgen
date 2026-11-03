@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mage Playground</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2230; color: #f3efe6; font: 14px/1.4 system-ui, sans-serif; }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
   #hud { position: fixed; left: 12px; top: 12px; padding: 10px 14px; background: rgba(15, 18, 28, .72); border-radius: 10px; max-width: 300px; }
   #hud h1 { margin: 0 0 6px; font-size: 17px; letter-spacing: .02em; }
   #hud ul { margin: 0; padding-left: 0; list-style: none; }
@@ -14,6 +14,36 @@
   kbd { display: inline-block; min-width: 1.4em; padding: 0 5px; border: 1px solid #8a8fa3; border-radius: 4px; background: #2c3245; font: 12px/1.5 ui-monospace, monospace; text-align: center; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; background: #1d2230; }
   #score { position: fixed; right: 12px; top: 12px; padding: 8px 12px; background: rgba(15, 18, 28, .72); border-radius: 10px; }
+
+  /* Touch controls: shown on touchscreens instead of the key list. */
+  .touch-only { display: none; }
+  body.touch .touch-only { display: block; }
+  body.touch .keys-only { display: none; }
+  body.touch #hud { max-width: 220px; padding: 8px 12px; }
+  #touch { position: fixed; inset: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+  #touch > * { pointer-events: auto; touch-action: none; }
+  #stick { position: absolute; left: calc(24px + env(safe-area-inset-left)); bottom: calc(24px + env(safe-area-inset-bottom));
+    width: 132px; height: 132px; border-radius: 50%; background: rgba(15, 18, 28, .35); border: 2px solid rgba(243, 239, 230, .35); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+    background: rgba(243, 239, 230, .55); }
+  #buttons { position: absolute; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 230px; height: 200px; pointer-events: none; }
+  #touch button { position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(243, 239, 230, .45);
+    background: rgba(15, 18, 28, .55); color: #f3efe6; font: 600 13px system-ui, sans-serif; pointer-events: auto; touch-action: none; padding: 0; }
+  #touch button:active, #touch button.down { background: rgba(143, 134, 201, .75); }
+  #touch button.big { width: 88px; height: 88px; font-size: 15px; right: 0; bottom: 0; border-color: rgba(255, 150, 70, .8); }
+  #extras { position: absolute; right: calc(16px + env(safe-area-inset-right)); bottom: calc(226px + env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+  #extras button { position: static; width: 64px; height: 40px; border-radius: 20px; }
+  #extras[hidden] { display: none; }
+  /* Narrow (portrait) phones: a smaller stick and button cluster that don't
+     meet in the middle, and a title box that leaves room for the score. */
+  @media (max-width: 520px) {
+    #stick { transform: scale(.85); transform-origin: bottom left; }
+    #buttons { transform: scale(.8); transform-origin: bottom right; }
+    #extras { bottom: calc(186px + env(safe-area-inset-bottom)); }
+    body.touch #hud { max-width: 150px; }
+    body.touch #hud h1 { font-size: 15px; }
+    body.touch #hud p { font-size: 12px; }
+  }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
@@ -23,7 +53,8 @@
 <div id="loading">Summoning the mage…</div>
 <div id="hud" hidden>
   <h1>Mage Playground</h1>
-  <ul>
+  <p class="touch-only" style="margin: 0">Stick to walk (push far to run) · drag to look around</p>
+  <ul class="keys-only">
     <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</li>
     <li><kbd>Space</kbd> jump · <kbd>Q</kbd> dodge roll</li>
     <li><kbd>J</kbd> or click: flaming sword</li>
@@ -34,6 +65,22 @@
   </ul>
 </div>
 <div id="score" hidden>Dummies toppled: <b id="count">0</b></div>
+<div id="touch" hidden>
+  <div id="stick"><div id="knob"></div></div>
+  <div id="buttons">
+    <button class="big" data-action="slash">Sword</button>
+    <button data-action="cast" style="right: 100px; bottom: 6px">Fireball</button>
+    <button data-action="spell" style="right: 86px; bottom: 84px">Nova</button>
+    <button data-action="jump" style="right: 10px; bottom: 104px">Jump</button>
+    <button data-action="dodge" style="right: 170px; bottom: 40px">Roll</button>
+    <button id="more" style="right: 156px; bottom: 120px; width: 48px; height: 48px">…</button>
+  </div>
+  <div id="extras" hidden>
+    <button data-action="wave">Wave</button>
+    <button data-action="hit">Hit</button>
+    <button data-action="collapse">Fall</button>
+  </div>
+</div>
 <script type="module" src="./game.js"></script>
 </body>
 </html>
